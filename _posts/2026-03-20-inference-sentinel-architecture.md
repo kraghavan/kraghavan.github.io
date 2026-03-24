@@ -1,0 +1,830 @@
+---
+layout: post
+title: "Building a Privacy-Aware LLM Gateway: Architecture Deep-Dive"
+date: 2026-03-20
+categories: [llm, infrastructure, python]
+---
+
+# Building a Privacy-Aware LLM Gateway: Architecture Deep-Dive
+
+*Part 1 of 2: Design decisions, trade-offs, and lessons from building inference-sentinel*
+
+---
+
+## Why I Built This
+
+During my job search, I wanted a project that would demonstrate distributed systems thinking — not just "I can call an API," but "I can design a system that handles real production concerns."
+
+The problem I chose: **How do you route LLM prompts intelligently based on data sensitivity, while maintaining session continuity and observability?**
+
+This post walks through every architectural decision I made building [inference-sentinel](https://github.com/kraghavan/inference-sentinel), including the trade-offs I considered and the mistakes I made along the way.
+
+---
+
+## System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              Application Layer                               │
+│                         (Any OpenAI-compatible client)                       │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │ POST /v1/inference
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            inference-sentinel                                │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                         Request Pipeline                              │   │
+│  │                                                                       │   │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │   │
+│  │  │   Hybrid    │    │   Session   │    │   Backend   │               │   │
+│  │  │ Classifier  │───▶│   Manager   │───▶│   Manager   │               │   │
+│  │  │             │    │             │    │             │               │   │
+│  │  │ • Regex     │    │ • Trapdoor  │    │ • Selection │               │   │
+│  │  │ • NER       │    │ • Buffer    │    │ • Failover  │               │   │
+│  │  │ • Tier 0-3  │    │ • Handoff   │    │ • Health    │               │   │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘               │   │
+│  │         │                  │                  │                       │   │
+│  │         ▼                  ▼                  ▼                       │   │
+│  │  ┌─────────────────────────────────────────────────────────────────┐ │   │
+│  │  │                    Telemetry Collector                          │ │   │
+│  │  │         Metrics │ Traces │ Logs (OpenTelemetry-native)          │ │   │
+│  │  └─────────────────────────────────────────────────────────────────┘ │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                      Background Services                              │   │
+│  │                                                                       │   │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │   │
+│  │  │   Shadow    │    │   Closed    │    │   Health    │               │   │
+│  │  │   Mode      │    │   Loop      │    │   Check     │               │   │
+│  │  │             │    │ Controller  │    │   Loop      │               │   │
+│  │  │ • A/B test  │    │             │    │             │               │   │
+│  │  │ • Compare   │    │ • Evaluate  │    │ • Poll      │               │   │
+│  │  │ • Metrics   │    │ • Recommend │    │ • Failover  │               │   │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘               │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                    ┌─────────────────┴─────────────────┐
+                    ▼                                   ▼
+        ┌─────────────────────┐             ┌─────────────────────┐
+        │    Local Backends   │             │   Cloud Backends    │
+        │                     │             │                     │
+        │  ┌───────────────┐  │             │  ┌───────────────┐  │
+        │  │ Ollama        │  │             │  │ Anthropic     │  │
+        │  │ • gemma3:4b   │  │             │  │ • Claude      │  │
+        │  │ • mistral     │  │             │  │   Sonnet 4    │  │
+        │  └───────────────┘  │             │  └───────────────┘  │
+        │                     │             │  ┌───────────────┐  │
+        │  (Round-robin at    │             │  │ Google        │  │
+        │   equal priority)   │             │  │ • Gemini      │  │
+        │                     │             │  │   2.0 Flash   │  │
+        └─────────────────────┘             │  └───────────────┘  │
+                                            │                     │
+                                            │  (Primary/fallback) │
+                                            └─────────────────────┘
+```
+
+---
+
+## Component 1: The Hybrid Classifier
+
+### The Problem
+
+I needed to classify prompts into privacy tiers quickly and accurately. The obvious approaches each have limitations:
+
+| Approach | Latency | Accuracy | Limitations |
+|----------|---------|----------|-------------|
+| Regex only | <1ms | ~85% | Misses context, false negatives |
+| LLM-based | 200-500ms | ~95% | Too slow for a gateway |
+| NER only | 5-10ms | ~90% | Heavy for simple patterns |
+
+### My Solution: Two-Stage Pipeline
+
+```python
+class HybridClassifier:
+    """
+    Stage 1: Fast-path regex for obvious patterns
+    Stage 2: NER for context-dependent detection (optional)
+    """
+    
+    async def classify(self, text: str) -> Classification:
+        # Stage 1: Regex (always runs, ~0.5ms)
+        regex_result = self._regex_classify(text)
+        
+        if regex_result.tier >= 3:
+            # Tier 3 detected by regex — no need for NER
+            return regex_result
+        
+        if not self._ner_enabled:
+            return regex_result
+        
+        # Stage 2: NER for additional context (~3ms)
+        ner_result = self._ner_classify(text)
+        
+        # Return the higher (more restrictive) tier
+        return max(regex_result, ner_result, key=lambda x: x.tier)
+```
+
+### Design Decision: Why Regex First?
+
+**Trade-off considered:** I could run NER on everything for maximum accuracy, but:
+
+1. **Latency budget:** A gateway adds latency to every request. I targeted <5ms for classification.
+2. **Resource cost:** spaCy NER loads a ~50MB model and uses CPU. For high-throughput scenarios, this matters.
+3. **Diminishing returns:** Regex catches 70%+ of Tier 3 patterns (SSN, credit cards, API keys) with near-zero cost.
+
+**The insight:** Regex handles the "obvious" cases; NER handles the "subtle" cases. Running both in parallel would be faster but would waste resources when regex already found Tier 3 data.
+
+### The 4-Tier Taxonomy
+
+| Tier | Name | Detection Method | Examples | Routing |
+|------|------|------------------|----------|---------|
+| 0 | PUBLIC | Default (no matches) | "Explain quantum computing" | Cloud |
+| 1 | INTERNAL | Keyword heuristics | "Summarize our Q3 roadmap" | Cloud |
+| 2 | CONFIDENTIAL | NER entities, emails | "Contact john@company.com" | Local (configurable) |
+| 3 | RESTRICTED | Regex patterns | SSN, credit cards, health data | Local (enforced) |
+
+### Design Decision: Why 4 Tiers?
+
+**Trade-off considered:** Simpler would be binary (sensitive/not-sensitive). More granular could be 10+ categories.
+
+**Why 4:**
+1. Maps to common enterprise data classification schemes (Public/Internal/Confidential/Restricted)
+2. Allows nuanced routing rules (Tier 2 is configurable, Tier 3 is enforced)
+3. Shadow mode can target specific tiers for A/B testing
+4. Simple enough to reason about, granular enough to be useful
+
+### Regex Pattern Design
+
+```python
+TIER_3_PATTERNS = {
+    # Social Security Numbers (various formats)
+    "ssn": r'\b\d{3}-\d{2}-\d{4}\b',
+    "ssn_spoken": r'\b(?:social|ssn)[\s:]*\d{3}[\s-]?\d{2}[\s-]?\d{4}\b',
+    
+    # Credit Cards (Luhn-valid patterns)
+    "credit_card": r'\b(?:4\d{3}|5[1-5]\d{2}|3[47]\d{2}|6(?:011|5\d{2}))'
+                   r'[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b',
+    
+    # API Keys (common prefixes)
+    "api_key": r'\b(?:sk-|pk_|api[_-]?key[_-]?)[a-zA-Z0-9]{20,}\b',
+    
+    # Health identifiers
+    "medical_record": r'\b(?:MRN|patient[\s-]?id)[\s:]*[A-Z0-9]{6,}\b',
+}
+```
+
+**Lesson learned:** The regex `\b` word boundary is essential. Without it, `123-45-6789` matches inside `abc123-45-6789xyz`, causing false positives.
+
+---
+
+## Component 2: Session Manager (The One-Way Trapdoor)
+
+### The Problem
+
+Per-request classification isn't enough. Consider this conversation:
+
+```
+Turn 1: "Help me draft a cover letter"        → Tier 0 → Cloud ✓
+Turn 2: "Here's my resume"                     → Tier 1 → Cloud ✓
+Turn 3: "My SSN is 123-45-6789"               → Tier 3 → Local ✓
+Turn 4: "Actually, format that differently"   → Tier 0 → Cloud? ❌
+```
+
+Turn 4 references Turn 3's SSN implicitly. If we route it to cloud, we've leaked context.
+
+### My Solution: One-Way State Machine
+
+```
+                    ┌─────────────────────┐
+                    │                     │
+        ┌──────────▶│   CLOUD_ELIGIBLE    │
+        │           │                     │
+        │           └──────────┬──────────┘
+        │                      │
+        │         Tier 2/3 detected in any turn
+        │                      │
+        │                      ▼
+        │           ┌─────────────────────┐
+   NEVER            │                     │
+        │           │    LOCAL_LOCKED     │
+        │           │                     │
+        └───────────└─────────────────────┘
+```
+
+**Key property:** The transition is irreversible. Once a session is `LOCAL_LOCKED`, no subsequent classification — even Tier 0 — can unlock it.
+
+### Implementation
+
+```python
+@dataclass
+class Session:
+    session_id: str  # SHA-256 hash of client-provided ID
+    state: Literal["CLOUD_ELIGIBLE", "LOCAL_LOCKED"]
+    lock_tier: Optional[int]  # Tier that triggered the lock
+    lock_turn: Optional[int]  # Which turn triggered it
+    buffer: deque[Message]    # Rolling context buffer
+    created_at: datetime
+    last_access: datetime
+    ttl_seconds: int = 900    # 15 minutes default
+
+class SessionManager:
+    async def get_route_decision(
+        self, 
+        session_id: str, 
+        classification: Classification
+    ) -> RouteDecision:
+        
+        session = await self._get_or_create(session_id)
+        
+        # Check if already locked
+        if session.state == "LOCAL_LOCKED":
+            return RouteDecision(
+                route="local",
+                reason=f"Session locked at turn {session.lock_turn}",
+                context_buffer=self._prepare_handoff(session)
+            )
+        
+        # Check if this classification triggers a lock
+        if classification.tier >= self._lock_threshold:
+            session.state = "LOCAL_LOCKED"
+            session.lock_tier = classification.tier
+            session.lock_turn = len(session.buffer) + 1
+            await self._persist(session)
+            
+            return RouteDecision(
+                route="local",
+                reason=f"Tier {classification.tier} triggered lock",
+                context_buffer=self._prepare_handoff(session)
+            )
+        
+        # Still eligible for cloud
+        return RouteDecision(route="cloud", reason="Session eligible")
+```
+
+### Design Decision: Why Hash Session IDs?
+
+**Trade-off considered:** Store session IDs as-is for debuggability vs. hash them for privacy.
+
+**Why hash:**
+1. Session IDs might contain user identifiers (email, user_id)
+2. If the session store is compromised, hashed IDs reveal nothing
+3. Lookup is O(1) either way with a good hash
+
+```python
+def _hash_session_id(self, raw_id: str) -> str:
+    return hashlib.sha256(raw_id.encode()).hexdigest()[:16]
+```
+
+### Design Decision: TTL and Eviction
+
+**Trade-off considered:** Long TTL preserves sessions across browser refreshes. Short TTL reduces memory footprint.
+
+**My choice:** 15 minutes (900 seconds), configurable.
+
+**Reasoning:**
+- Most conversations complete within 15 minutes
+- Matches typical "idle timeout" for sensitive applications
+- Memory overhead: ~2KB per session × 10K sessions = 20MB (acceptable)
+
+---
+
+## Component 3: Context Handoff
+
+### The Problem
+
+When a session locks mid-conversation, the local model has no context. It doesn't know what the user was asking about.
+
+But we can't just forward the full conversation history — it contains the very PII we're trying to protect.
+
+### My Solution: Rolling Buffer with Scrubbing
+
+```python
+class ContextHandoff:
+    """
+    Maintains a rolling buffer of recent turns.
+    On handoff, scrubs detected entities before injection.
+    """
+    
+    def __init__(
+        self,
+        buffer_size: int = 5,          # Last 5 turns
+        max_chars: int = 4000,          # Truncate if needed
+        scrub_entities: bool = True     # Remove detected PII
+    ):
+        self.buffer = deque(maxlen=buffer_size)
+        self.max_chars = max_chars
+        self.scrub_entities = scrub_entities
+    
+    def prepare_handoff(self, session: Session) -> str:
+        """Generate a context injection for local model."""
+        
+        buffer_text = self._format_buffer(session.buffer)
+        
+        if self.scrub_entities:
+            buffer_text = self._scrub_pii(buffer_text)
+        
+        if len(buffer_text) > self.max_chars:
+            buffer_text = buffer_text[:self.max_chars] + "...[truncated]"
+        
+        return f"""Continue this conversation. Context from prior turns:
+
+{buffer_text}
+
+---
+The user's latest message follows. Respond naturally without mentioning this context injection."""
+```
+
+### Design Decision: Scrub vs. Don't Scrub
+
+**Trade-off considered:**
+
+| Option | Pros | Cons |
+|--------|------|------|
+| Scrub PII | Safer, can't leak to local model | Loses context ("send to [REDACTED]") |
+| Don't scrub | Full context preserved | Local model sees all PII |
+
+**My choice:** Scrub by default, configurable.
+
+**Reasoning:** Local models are still models. They might log inputs, be fine-tuned on user data, or have other leakage vectors. Defense in depth.
+
+### Design Decision: Buffer Size
+
+**Why 5 turns?**
+
+1. Covers typical "continuation" scenarios (user refers to something 2-3 turns ago)
+2. 5 × ~500 chars = 2500 chars average, well under context limits
+3. Beyond 5 turns, relevance drops significantly
+4. Memory overhead scales linearly with active sessions
+
+---
+
+## Component 4: Backend Manager
+
+### The Problem
+
+I needed to support multiple backends with different selection strategies:
+
+- **Local:** Multiple Ollama models (gemma3:4b, mistral) on the same machine
+- **Cloud:** Primary (Anthropic) with fallback (Google)
+
+### Selection Strategies
+
+```python
+class SelectionStrategy(Enum):
+    PRIORITY = "priority"       # Use highest-priority healthy backend
+    ROUND_ROBIN = "round_robin" # Rotate through healthy backends
+    LATENCY_BEST = "latency"    # Use backend with lowest recent p50
+
+class BackendManager:
+    async def select_backend(
+        self, 
+        route: Literal["local", "cloud"]
+    ) -> Backend:
+        
+        candidates = self._get_healthy_backends(route)
+        
+        if not candidates:
+            raise NoHealthyBackendError(f"No healthy {route} backends")
+        
+        if self.strategy == SelectionStrategy.PRIORITY:
+            return min(candidates, key=lambda b: b.priority)
+        
+        elif self.strategy == SelectionStrategy.ROUND_ROBIN:
+            idx = self._rr_counter[route] % len(candidates)
+            self._rr_counter[route] += 1
+            return candidates[idx]
+        
+        elif self.strategy == SelectionStrategy.LATENCY_BEST:
+            return min(candidates, key=lambda b: b.recent_p50_ms)
+```
+
+### Design Decision: Why Round-Robin for Local?
+
+**Trade-off considered:** 
+
+| Strategy | Pros | Cons |
+|----------|------|------|
+| Priority | Predictable, use "best" model | Single model takes all load |
+| Round-robin | Even distribution, resilience | May route to slower model |
+| Latency-best | Optimal per-request | Oscillates under load, cold model penalty |
+
+**My choice for local:** Round-robin with equal priority.
+
+**Reasoning:**
+1. Both models (gemma3:4b, mistral) are "good enough" for local use
+2. Distributes load across models, preventing thermal throttling on M4
+3. Provides natural A/B data for quality comparison
+4. Failover is automatic if one model becomes unhealthy
+
+### Health Checking
+
+```python
+async def health_check_loop(self):
+    """Background loop that checks backend health."""
+    
+    while True:
+        for endpoint in self.endpoints:
+            try:
+                # Lightweight ping — don't run full inference
+                healthy = await endpoint.ping(timeout=5.0)
+                self._set_health(endpoint, healthy)
+                
+            except Exception as e:
+                logger.warning(f"Health check failed: {endpoint.name}", error=str(e))
+                self._set_health(endpoint, False)
+        
+        await asyncio.sleep(self.check_interval_seconds)
+```
+
+### Design Decision: Ping vs. Inference Health Check
+
+**Trade-off considered:**
+
+| Method | Pros | Cons |
+|--------|------|------|
+| HTTP ping | Fast, low overhead | Doesn't verify model is loaded |
+| Minimal inference | Verifies end-to-end | Slow, wastes compute |
+
+**My choice:** HTTP ping to Ollama's `/api/tags` endpoint.
+
+**Reasoning:** Ollama keeps models in memory after first load. If the HTTP endpoint responds, the model is available. Full inference check would add ~2s per model per check cycle.
+
+---
+
+## Component 5: Shadow Mode
+
+### The Problem
+
+How do I know if local inference is "good enough" to replace cloud for certain traffic?
+
+### My Solution: Parallel Execution with Comparison
+
+```
+User Request (Tier 0 or 1)
+         │
+         ├────────────▶ Cloud Backend ────▶ Response to User
+         │                    │
+         │                    │ (captured)
+         │                    ▼
+         │              ┌──────────┐
+         │              │ Compare  │
+         │              │ Module   │
+         │              └────┬─────┘
+         │                   │
+         └────────────▶ Local Backend ────┘ (discarded)
+                        (async, non-blocking)
+```
+
+### Implementation
+
+```python
+class ShadowMode:
+    async def execute_with_shadow(
+        self,
+        request: InferenceRequest,
+        primary_backend: Backend,      # Cloud
+        shadow_backend: Backend,       # Local
+    ) -> InferenceResponse:
+        
+        # Start both in parallel
+        primary_task = asyncio.create_task(
+            primary_backend.generate(request)
+        )
+        shadow_task = asyncio.create_task(
+            shadow_backend.generate(request)
+        )
+        
+        # Wait for primary (user-facing)
+        primary_response = await primary_task
+        
+        # Don't block on shadow — let it complete in background
+        asyncio.create_task(
+            self._record_shadow_result(
+                request, 
+                primary_response, 
+                shadow_task
+            )
+        )
+        
+        return primary_response
+    
+    async def _record_shadow_result(
+        self,
+        request: InferenceRequest,
+        primary_response: InferenceResponse,
+        shadow_task: asyncio.Task,
+    ):
+        try:
+            shadow_response = await asyncio.wait_for(
+                shadow_task, 
+                timeout=self.shadow_timeout_seconds
+            )
+            
+            # Compute similarity
+            similarity = await self._compute_similarity(
+                primary_response.content,
+                shadow_response.content
+            )
+            
+            # Record metrics
+            SHADOW_SIMILARITY.labels(tier=request.tier).observe(similarity)
+            SHADOW_LATENCY_DIFF.labels(tier=request.tier).observe(
+                shadow_response.latency_ms - primary_response.latency_ms
+            )
+            
+        except asyncio.TimeoutError:
+            SHADOW_TIMEOUTS.labels(tier=request.tier).inc()
+```
+
+### Design Decision: Async Shadow Execution
+
+**Trade-off considered:**
+
+| Approach | User latency impact | Comparison accuracy |
+|----------|---------------------|---------------------|
+| Sequential | +3-5s (local inference) | Perfect |
+| Parallel, await both | +0ms (but delays response) | Perfect |
+| Parallel, fire-and-forget | +0ms | Timeout risk |
+
+**My choice:** Parallel with fire-and-forget for shadow.
+
+**Reasoning:** User experience is paramount. They shouldn't wait for shadow inference. If shadow times out, we lose that data point but the primary request is unaffected.
+
+### Similarity Computation
+
+```python
+async def _compute_similarity(
+    self, 
+    text_a: str, 
+    text_b: str
+) -> float:
+    """
+    Compute semantic similarity between two responses.
+    Uses cosine similarity on embeddings.
+    """
+    
+    if not self.similarity_enabled:
+        # Fallback: simple text overlap
+        return self._jaccard_similarity(text_a, text_b)
+    
+    # Get embeddings (cached)
+    emb_a = await self._get_embedding(text_a)
+    emb_b = await self._get_embedding(text_b)
+    
+    # Cosine similarity
+    return float(np.dot(emb_a, emb_b) / (
+        np.linalg.norm(emb_a) * np.linalg.norm(emb_b)
+    ))
+```
+
+---
+
+## Component 6: Closed-Loop Controller
+
+### The Problem
+
+Shadow mode generates data. But who acts on it?
+
+Manual review doesn't scale. I wanted a system that could observe patterns and generate routing recommendations automatically.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Closed-Loop Controller                    │
+│                                                              │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
+│  │   Metrics   │    │    Rule     │    │ Recommend-  │     │
+│  │   Reader    │───▶│   Engine    │───▶│   ations    │     │
+│  │             │    │             │    │             │     │
+│  │ • Query     │    │ • Evaluate  │    │ • Generate  │     │
+│  │   Prometheus│    │ • Compare   │    │ • Log       │     │
+│  │ • Aggregate │    │ • Threshold │    │ • (Act)*    │     │
+│  └─────────────┘    └─────────────┘    └─────────────┘     │
+│                                                              │
+│  *Act is disabled in "observe" mode                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Rule Engine
+
+```python
+class RuleEngine:
+    def evaluate(
+        self, 
+        current: TierMetrics, 
+        previous: Optional[TierMetrics]
+    ) -> Recommendation:
+        
+        # Rule 1: Insufficient data
+        if current.sample_count < self.min_samples:
+            return Recommendation(
+                action="insufficient_data",
+                confidence="low",
+                reason=f"Only {current.sample_count} samples"
+            )
+        
+        # Rule 2: Quality threshold met
+        if current.quality_match_rate >= self.quality_threshold:
+            savings = current.total_cost_savings_usd
+            return Recommendation(
+                action="route_to_local",
+                confidence="high",
+                reason=f"Quality {current.quality_match_rate:.1%} >= {self.quality_threshold:.1%}, "
+                       f"potential savings ${savings:.2f}/day"
+            )
+        
+        # Rule 3: Drift detection
+        if previous and abs(current.quality_match_rate - previous.quality_match_rate) > self.drift_threshold:
+            return Recommendation(
+                action="drift_alert",
+                confidence="medium",
+                reason=f"Quality changed {current.quality_match_rate - previous.quality_match_rate:+.1%}"
+            )
+        
+        # Rule 4: Default — keep on cloud
+        return Recommendation(
+            action="keep_on_cloud",
+            confidence="medium",
+            reason=f"Quality {current.quality_match_rate:.1%} < {self.quality_threshold:.1%}"
+        )
+```
+
+### Design Decision: Observe vs Auto Mode
+
+**Trade-off considered:**
+
+| Mode | Behavior | Risk |
+|------|----------|------|
+| Observe | Log recommendations only | None (human reviews) |
+| Auto | Adjust routing weights automatically | Runaway feedback loops |
+
+**My choice:** Observe mode only for v1.
+
+**Reasoning:** Auto-routing is powerful but dangerous. A bug in similarity computation could cause the controller to route all traffic to local, degrading user experience. For a portfolio project, demonstrating the architecture is sufficient. Production deployment would require extensive testing before enabling auto mode.
+
+---
+
+## Component 7: Observability Stack
+
+### Why OpenTelemetry-Native?
+
+I wanted metrics, traces, and logs that would work with any observability backend. OpenTelemetry is the industry standard.
+
+```python
+# Metrics: Prometheus-compatible
+REQUESTS_TOTAL = Counter(
+    "sentinel_requests_total",
+    "Total inference requests",
+    labelnames=["route", "backend", "endpoint", "model", "tier", "status"]
+)
+
+TTFT_HISTOGRAM = Histogram(
+    "sentinel_ttft_seconds",
+    "Time to first token",
+    labelnames=["backend", "endpoint", "model"],
+    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0]
+)
+
+# Traces: OTLP export to Tempo
+tracer = trace.get_tracer("inference-sentinel")
+
+@tracer.start_as_current_span("classify_prompt")
+async def classify(self, text: str) -> Classification:
+    span = trace.get_current_span()
+    span.set_attribute("text.length", len(text))
+    ...
+```
+
+### The Grafana Dashboards
+
+Two dashboards provide operational visibility:
+
+**Overview Dashboard** — Operational health
+- Request rate, error rate, latency percentiles
+- Route distribution (local vs cloud)
+- Per-model TTFT and ITL
+- Backend health status
+- Cost accumulation
+
+**Controller Dashboard** — ML/quality metrics
+- Similarity score trends
+- Shadow comparison counts
+- Latency differential (local - cloud)
+- Cost savings over time
+- Routing recommendations log
+
+### Design Decision: Metric Cardinality
+
+**Trade-off considered:** More labels = more granular data, but also more time series (cardinality explosion).
+
+**My approach:**
+- `route`: 2 values (local, cloud)
+- `backend`: 4 values (ollama, anthropic, google, unknown)
+- `model`: ~10 values (bounded by configured models)
+- `tier`: 4 values (0, 1, 2, 3)
+- `status`: 2 values (success, error)
+
+Total theoretical cardinality: 2 × 4 × 10 × 4 × 2 = 640 series. Acceptable for a single-instance deployment.
+
+---
+
+## Deployment Architecture
+
+### Docker Compose Stack
+
+```yaml
+services:
+  sentinel:       # The gateway
+  prometheus:     # Metrics storage
+  grafana:        # Visualization
+  loki:           # Log aggregation
+  tempo:          # Distributed tracing
+```
+
+### Design Decision: Why Not Kubernetes?
+
+**Trade-off considered:**
+
+| Deployment | Pros | Cons |
+|------------|------|------|
+| Docker Compose | Simple, local-friendly | Single node only |
+| Kubernetes | Scalable, production-grade | Complexity overhead |
+
+**My choice:** Docker Compose for v1.
+
+**Reasoning:**
+1. Primary use case is local inference on a single Mac Mini
+2. K8s manifests are planned for Phase 6
+3. Compose is sufficient to demonstrate the architecture
+4. Lower barrier to entry for people trying the project
+
+---
+
+## Configuration Philosophy
+
+### Environment Variables vs YAML
+
+I use [pydantic-settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) which supports both:
+
+```python
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="SENTINEL_",
+        env_nested_delimiter="__",
+        yaml_file="config/settings.yaml"
+    )
+    
+    local: LocalConfig
+    cloud: CloudConfig
+    session: SessionConfig
+    # ...
+```
+
+**Priority order:**
+1. Environment variables (highest)
+2. YAML config file
+3. Default values (lowest)
+
+**Lesson learned:** This caused a subtle bug. `SENTINEL_LOCAL__SELECTION_STRATEGY=priority` in docker-compose.yml was overriding `selection_strategy: round_robin` in settings.yaml. Took hours to debug.
+
+---
+
+## What I'd Do Differently
+
+### 1. Start with Structured Logging
+
+I added structlog late. Retrofitting structured logging is painful. Start with it from day one.
+
+### 2. Integration Tests Earlier
+
+Unit tests are great but don't catch issues like "the regex works but the NER model isn't loaded in Docker." Integration tests against a real Ollama instance would have caught several bugs earlier.
+
+### 3. Configuration Validation
+
+pydantic validates types but not semantics. I could set `lock_threshold_tier: 5` (invalid — only 0-3 exist) and it would pass validation. Custom validators would help.
+
+### 4. Metrics Design Up Front
+
+I added the `model` label to `REQUESTS_TOTAL` late, which broke existing Grafana queries. Design your metrics schema before writing dashboards.
+
+---
+
+## Coming Up: Part 2
+
+In Part 2, I'll share the benchmarking results:
+
+- Classification accuracy across 1000+ test cases
+- Latency percentiles (TTFT, ITL, TPOT) by model
+- Shadow mode similarity distributions
+- Cost analysis: cloud vs local routing
+- Controller recommendation accuracy
+
+---
+
+**GitHub:** [github.com/kraghavan/inference-sentinel](https://github.com/kraghavan/inference-sentinel)
+
+*Questions or feedback? Connect with me on [LinkedIn](https://linkedin.com/in/karthikaraghavan).*
