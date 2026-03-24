@@ -42,14 +42,14 @@ During my current career transition, I've been shipping open-source tools:
 
 ## Community
 
-I run **AI Assembly**, a women-in-tech community with 30+ developers. We host workshops on AI literacy and share resources to help engineers level up. If you're a woman in tech interested in AI/ML, [reach out](https://linkedin.com/in/karthikaramalingam).
+I run **AI Assembly**, a women-in-tech community with 30+ developers. We host workshops on AI literacy and share resources to help engineers level up. If you're a woman in tech interested in AI/ML, [reach out](https://linkedin.com/in/karthikaraghavan).
 
 ## Let's Connect
 
 I'm currently exploring senior/staff roles in **platform engineering**, **ML infrastructure**, or **developer tools**. If you're building interesting infrastructure, I'd love to chat.
 
 - **GitHub**: [github.com/kraghavan](https://github.com/kraghavan)
-- **LinkedIn**: [linkedin.com/in/karthikaramalingam](https://linkedin.com/in/karthikaramalingam)
+- **LinkedIn**: [linkedin.com/in/karthikaraghavan](https://linkedin.com/in/karthikaraghavan)
 - **Email**: [on LinkedIn]
 
 ---
