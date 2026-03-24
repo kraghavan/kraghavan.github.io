@@ -6,6 +6,7 @@ plugins:
   - jekyll-seo-tag
   - jekyll-include-cache
 
+# Site settings
 title: Karthika Raghavan
 subtitle: "Infrastructure & AI Systems"
 name: Karthika Raghavan
@@ -13,8 +14,10 @@ description: "Engineering blog on distributed systems, LLM infrastructure, and o
 url: "https://kraghavan.github.io"
 minimal_mistakes_skin: "dark"
 
+# Author info (shows in sidebar)
 author:
   name: "Karthika Raghavan"
+  avatar: "/assets/images/avatar.jpg"  # Add your photo here
   bio: "Senior Software Engineer • Distributed Systems • LLM Infrastructure"
   location: "Vancouver, BC"
   links:
@@ -23,8 +26,33 @@ author:
       url: "https://github.com/kraghavan"
     - label: "LinkedIn"
       icon: "fab fa-fw fa-linkedin"
-      url: "https://linkedin.com/in/karthikaramalingam"
+      url: "https://linkedin.com/in/karthikaraghavan"
 
+# Navigation menu (TOP BAR)
+header_pages:
+  - about.md
+  - projects.md
+
+# Or use this for more control:
+navigation:
+  - title: "About"
+    url: /about/
+  - title: "Projects"
+    url: /projects/
+  - title: "Blog"
+    url: /
+
+# Footer links
+footer:
+  links:
+    - label: "GitHub"
+      icon: "fab fa-fw fa-github"
+      url: "https://github.com/kraghavan"
+    - label: "LinkedIn"
+      icon: "fab fa-fw fa-linkedin"
+      url: "https://linkedin.com/in/karthikaraghavan"
+
+# Post defaults
 defaults:
   - scope:
       path: ""
@@ -37,3 +65,24 @@ defaults:
       toc_sticky: true
       header:
         overlay_color: "#1a1a2e"
+  - scope:
+      path: ""
+      type: pages
+    values:
+      layout: single
+      author_profile: true
+
+# Reading time, comments, etc.
+read_time: true
+words_per_minute: 200
+
+# SEO
+twitter:
+  username: kaborageh  # Update if you have Twitter
+og_image: /assets/images/default-og.png
+
+# Analytics (optional)
+# analytics:
+#   provider: "google-gtag"
+#   google:
+#     tracking_id: "G-XXXXXXXXXX"

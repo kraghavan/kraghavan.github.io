@@ -1,0 +1,8 @@
+# Main navigation links (top bar)
+main:
+  - title: "About"
+    url: /about/
+  - title: "Projects"
+    url: /projects/
+  - title: "Blog"
+    url: /
