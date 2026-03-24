@@ -7,51 +7,31 @@ author_profile: true
 
 # Hey, I'm Karthika 👋
 
-I'm a Software Engineer with over a decade of experience building distributed systems, data pipelines, and infrastructure at scale.
+I'm a Senior Software Engineer who has spent a decade convincing distributed systems to behave. Sometimes they listen.
 
-## What I Do
+My specialty is the infrastructure nobody sees until it breaks: Kafka pipelines that handle 100K events/sec, EKS migrations that don't page you at 3am, DNS control planes that actually control things.
 
-I specialize in the messy middle — the infrastructure that makes products actually work:
+I also hold a PhD in Computational Complex Systems with a focus on genomics and bioinformatics — which is a fancy way of saying I'm comfortable with ambiguity and large datasets.
 
-- **Platform Engineering**: EKS migrations, Kafka pipelines at 100K+ events/sec, DNS control planes
-- **Observability**: Prometheus, Grafana, OpenTelemetry — if it's not measured, it doesn't exist
-- **LLM Infrastructure**: Building the tooling layer between models and production systems
+## Where I've been
 
-Most recently, I've been exploring the intersection of **privacy and AI** — how do we get the benefits of powerful cloud LLMs without sending sensitive data outside our walls?
+**Cisco** — Made Kafka & Zookeeper behave, migrated EKS things and didn't drop them, saved $144K annually in securing secrets (no, they did not let me keep any of it).
 
-## Where I've Been
+**MasterCard** — Fintech data engineering. Learned that money is just numbers until compliance says otherwise.
 
-- **Cisco** — SRE building Kafka infrastructure, EKS migrations, and DNS control planes. Saved $800K annually through infrastructure optimization.
-- **D-Wave** — Quantum computing job scheduling. Yes, actual quantum computers.
-- **Enbala** — Real-time power grid control systems.
-- **MasterCard** — Fintech data engineering.
+**D-Wave** — Scheduled jobs on actual quantum computers. Yes, they're real. No, I can't explain how they work. Nobody can.
 
-I also hold a **PhD in Computational Complex Systems** with a focus on genomics and bioinformatics — which is a fancy way of saying I'm comfortable with ambiguity and large datasets.
+**Enbala** — Real-time power grid control. The kind of system where "move fast and break things" is a felony.
 
-## What I'm Building Now
-
-During my current career transition, I've been shipping open-source tools:
-
-| Project | What It Does |
-|---------|--------------|
-| [inference-sentinel](https://github.com/kraghavan/inference-sentinel) | Privacy-aware LLM gateway with session stickiness |
-| [go-fast-token](https://github.com/kraghavan/go-fast-token) | Parallel BPE tokenizer in Go — 3M tokens/sec on M4 |
-| [schema-travels](https://pypi.org/project/schema-travels/) | SQL-to-NoSQL migration analyzer (on PyPI) |
-| [model-council](https://github.com/kraghavan/model-council) | Multi-model AI code review with semantic issue matching |
-| [indicflow](https://pypi.org/project/indicflow/) | Multilingual Indian document analysis via Gemini |
+Currently, I'm building open-source tools at the intersection of LLMs and infrastructure. You can see them on [my projects page](/projects/) — they're more interesting than this paragraph.
 
 ## Community
 
-I run **AI Assembly**, a women-in-tech community with 30+ developers. We host workshops on AI literacy and share resources to help engineers level up. If you're a woman in tech interested in AI/ML, [reach out](https://linkedin.com/in/karthikaraghavan).
+I run **AI Assembly**, a women-in-tech community (via whatsapp, into slack in future) with 30 developers and growing. We host workshops, share resources, and occasionally complain about travveling together in the AI high speed rail. If you're a woman in tech interested in AI/ML, [let's connect](https://linkedin.com/in/karthikaraghavan).
 
-## Let's Connect
+## Get in touch
 
-I'm currently exploring senior/staff roles in **platform engineering**, **ML infrastructure**, or **developer tools**. If you're building interesting infrastructure, I'd love to chat.
+I'm based in Vancouver, BC — open to remote and hybrid roles in platform engineering, ML infrastructure, or anything where I get to make systems reliable at scale. If you're building interesting infrastructure, I'd love to chat.
 
 - **GitHub**: [github.com/kraghavan](https://github.com/kraghavan)
 - **LinkedIn**: [linkedin.com/in/karthikaraghavan](https://linkedin.com/in/karthikaraghavan)
-- **Email**: [on LinkedIn]
-
----
-
-*Based in Vancouver, BC. Open to remote and hybrid roles.*
