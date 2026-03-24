@@ -9,7 +9,7 @@ author_profile: true
 
 I'm a Senior Software Engineer who has spent a decade convincing distributed systems to behave. Sometimes they listen.
 
-My specialty is the infrastructure nobody sees until it breaks: Kafka pipelines that handle 100K events/sec, EKS migrations that don't page you at 3am, DNS control planes that actually control things.
+My specialty is the infrastructure nobody sees until it breaks: Kafka pipelines that handle 100K events/sec, EKS migrations that don't page you at 3am, DNS control planes that actually control things (definitely not designing this website) 
 
 I also hold a PhD in Computational Complex Systems with a focus on genomics and bioinformatics — which is a fancy way of saying I'm comfortable with ambiguity and large datasets.
 
@@ -27,7 +27,7 @@ Currently, I'm building open-source tools at the intersection of LLMs and infras
 
 ## Community
 
-I run **AI Assembly**, a women-in-tech community (via whatsapp, into slack in future) with 30 developers and growing. We host workshops, share resources, and occasionally complain about travveling together in the AI high speed rail. If you're a woman in tech interested in AI/ML, [let's connect](https://linkedin.com/in/karthikaraghavan).
+I run **AI Assembly**, a women-in-tech community (via whatsapp, into slack in future) with 30 developers/leaders and growing. We host workshops, share resources, and occasionally complain about traveling in the AI high speed rail (harder to keep up). If you're a woman in tech interested in AI/ML, [let's connect](https://linkedin.com/in/karthikaraghavan).
 
 ## Get in touch
 

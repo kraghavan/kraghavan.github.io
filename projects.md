@@ -38,9 +38,9 @@ author_profile: true
 }
 
 .project-tile:hover {
-  border-color: #1e88e5;
+  border-color: #4dabf7;
   transform: translateY(-3px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
 }
 
 .project-tile .icon {
@@ -62,11 +62,13 @@ author_profile: true
 }
 
 .project-detail {
-  background: #f8f9fa;
+  background: #2a2a2e !important;
   border-radius: 12px;
   padding: 1.5rem;
   margin-top: 8px;
   display: none;
+  border: 1px solid #3a3a3e !important;
+  color: #e0e0e0 !important;
 }
 
 .project-tile:hover + .project-detail,
@@ -85,24 +87,26 @@ author_profile: true
   font-size: 18px;
   font-weight: 600;
   margin: 0 0 4px 0;
+  color: #e8e8e8 !important;
 }
 
 .detail-hook {
   font-size: 14px;
-  color: #1e88e5;
+  color: #4dabf7 !important;
   font-style: italic;
   margin: 0;
 }
 
 .detail-tech {
   font-size: 12px;
-  color: #888;
+  color: #999 !important;
 }
 
 .detail-desc {
   font-size: 15px;
   line-height: 1.6;
   margin: 0 0 16px 0;
+  color: #c8c8c8 !important;
 }
 
 .detail-footer {
@@ -112,17 +116,18 @@ author_profile: true
 }
 
 .detail-stats {
-  color: #666;
+  color: #999 !important;
 }
 
 .detail-links a {
-  color: #1e88e5;
+  color: #4dabf7 !important;
   text-decoration: none;
   margin-left: 12px;
 }
 
 .detail-links a:hover {
   text-decoration: underline;
+  color: #74c0fc !important;
 }
 </style>
 
@@ -166,7 +171,7 @@ author_profile: true
 
 </div>
 
-<div id="detail-panel" class="project-detail" style="display: block; background: #f8f9fa;">
+<div id="detail-panel" class="project-detail" style="display: block; background: #2a2a2e; border: 1px solid #3a3a3e;">
   <p style="color: #888; margin: 0;">👆 Click a project to see details</p>
 </div>
 
@@ -231,7 +236,8 @@ const projects = {
 
 function showDetail(key) {
   const p = projects[key];
-  document.getElementById('detail-panel').innerHTML = `
+  const panel = document.getElementById('detail-panel');
+  panel.innerHTML = `
     <div class="detail-header">
       <div>
         <h3 class="detail-title">${p.title}</h3>
@@ -245,11 +251,14 @@ function showDetail(key) {
       <span class="detail-links">${p.links}</span>
     </div>
   `;
-  document.getElementById('detail-panel').style.display = 'block';
+  panel.style.display = 'block';
+  panel.style.background = '#2a2a2e';
+  panel.style.border = '1px solid #3a3a3e';
+  panel.style.color = '#c8c8c8';
   
   // Highlight selected tile
   document.querySelectorAll('.project-tile').forEach(t => t.style.borderColor = '#e1e1e1');
-  event.currentTarget.style.borderColor = '#1e88e5';
+  event.currentTarget.style.borderColor = '#4dabf7';
 }
 </script>
 
