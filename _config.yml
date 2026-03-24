@@ -18,7 +18,7 @@ minimal_mistakes_skin: "dark"
 author:
   name: "Karthika Raghavan"
   avatar: "/assets/images/avatar.jpg"  # Add your photo here
-  bio: "Senior Software Engineer • Distributed Systems • LLM Infrastructure"
+  bio: "Software Engineer • Distributed Systems • LLM Infrastructure"
   location: "Vancouver, BC"
   links:
     - label: "GitHub"

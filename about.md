@@ -7,7 +7,7 @@ author_profile: true
 
 # Hey, I'm Karthika 👋
 
-I'm a Senior Software Engineer with over a decade of experience building distributed systems, data pipelines, and infrastructure at scale.
+I'm a Software Engineer with over a decade of experience building distributed systems, data pipelines, and infrastructure at scale.
 
 ## What I Do
 
