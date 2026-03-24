@@ -23,19 +23,20 @@ This post walks through every architectural decision I made building [inference-
 
 ## System Overview
 
+### Flow & Components
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              Application Layer                               │
-│                         (Any OpenAI-compatible client)                       │
+│                              Application Layer                              │
+│                         (Any OpenAI-compatible client)                      │
 └─────────────────────────────────────┬───────────────────────────────────────┘
                                       │ POST /v1/inference
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                            inference-sentinel                                │
-│                                                                              │
+│                            inference-sentinel                               │
+│                                                                             │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                         Request Pipeline                              │   │
-│  │                                                                       │   │
+│  │                         Request Pipeline                             │   │
+│  │                                                                      │   │
 │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │   │
 │  │  │   Hybrid    │    │   Session   │    │   Backend   │               │   │
 │  │  │ Classifier  │───▶│   Manager   │───▶│   Manager   │               │   │
@@ -44,17 +45,17 @@ This post walks through every architectural decision I made building [inference-
 │  │  │ • NER       │    │ • Buffer    │    │ • Failover  │               │   │
 │  │  │ • Tier 0-3  │    │ • Handoff   │    │ • Health    │               │   │
 │  │  └─────────────┘    └─────────────┘    └─────────────┘               │   │
-│  │         │                  │                  │                       │   │
-│  │         ▼                  ▼                  ▼                       │   │
+│  │         │                  │                  │                      │   │
+│  │         ▼                  ▼                  ▼                      │   │
 │  │  ┌─────────────────────────────────────────────────────────────────┐ │   │
 │  │  │                    Telemetry Collector                          │ │   │
 │  │  │         Metrics │ Traces │ Logs (OpenTelemetry-native)          │ │   │
 │  │  └─────────────────────────────────────────────────────────────────┘ │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                              │
+│                                                                             │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                      Background Services                              │   │
-│  │                                                                       │   │
+│  │                      Background Services                             │   │
+│  │                                                                      │   │
 │  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐               │   │
 │  │  │   Shadow    │    │   Closed    │    │   Health    │               │   │
 │  │  │   Mode      │    │   Loop      │    │   Check     │               │   │
@@ -87,6 +88,66 @@ This post walks through every architectural decision I made building [inference-
 ```
 
 ---
+
+### Mermaid Diagram
+This mermaid diagram looks better
+
+<div class="mermaid">
+flowchart TB
+    subgraph INPUT["Request Flow"]
+        REQ["POST /v1/chat/completions"]
+        CLASSIFY["Classification<br/>Regex → NER → Tier 0-3"]
+    end
+
+    subgraph SESSION["Session Stickiness — One-Way Trapdoor"]
+        SID["Session ID = SHA256(IP + daily salt)"]
+        CHECK{"Session<br/>state?"}
+        ELIGIBLE["CLOUD_ELIGIBLE<br/>Can use cloud or local"]
+        LOCKED["LOCAL_LOCKED<br/>🔒 Permanent — never back to cloud"]
+        PII{"PII in<br/>request?"}
+        LOCK_ACTION["🚨 LOCK SESSION<br/>+ save to rolling buffer"]
+    end
+
+    subgraph HANDOFF["Context Handoff — On Lock Transition"]
+        BUFFER["Rolling buffer<br/>Last 5 turns OR 4000 chars"]
+        INJECT["Inject as system message:<br/>&lt;prior_context&gt;...&lt;/prior_context&gt;"]
+    end
+
+    subgraph ROUTING["Backend Selection — Round-Robin Per Request"]
+        CLOUD_RR{"Cloud pool<br/>round-robin"}
+        LOCAL_RR{"Local pool<br/>round-robin"}
+    end
+
+    subgraph CLOUD["Cloud Backends"]
+        ANTHROPIC["claude-sonnet-4"]
+        GOOGLE["gemini-2.0-flash"]
+    end
+
+    subgraph LOCAL["Local Backends — Mac Mini M4"]
+        GEMMA["gemma3:4b"]
+        MISTRAL["mistral"]
+    end
+
+    subgraph OBS["Observability"]
+        SHADOW["Shadow mode A/B comparison"]
+        CTRL["Controller recommendations"]
+        PROM["Prometheus → Grafana"]
+    end
+
+    REQ --> CLASSIFY --> SID --> CHECK
+    CHECK -->|"new session"| ELIGIBLE
+    CHECK -->|"already locked"| LOCKED
+    ELIGIBLE --> PII
+    PII -->|"Tier 0-1, no PII"| CLOUD_RR
+    PII -->|"Tier 2-3 OR PII"| LOCK_ACTION
+    LOCK_ACTION --> BUFFER --> INJECT --> LOCAL_RR
+    LOCK_ACTION -.->|"state = LOCAL_LOCKED"| LOCKED
+    LOCKED --> LOCAL_RR
+    CLOUD_RR --> ANTHROPIC & GOOGLE
+    LOCAL_RR --> GEMMA & MISTRAL
+    CLOUD -.-> SHADOW --> CTRL
+    CLOUD & LOCAL --> PROM
+</div>
 
 ## Component 1: The Hybrid Classifier
 
