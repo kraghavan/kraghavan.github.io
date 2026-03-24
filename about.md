@@ -15,7 +15,7 @@ I also hold a PhD in Computational Complex Systems with a focus on genomics and 
 
 ## Where I've been
 
-**Cisco** — Made Kafka & Zookeeper behave, migrated EKS things and didn't drop them, saved $144K annually in securing secrets (no, they did not let me keep any of it).
+**Cisco** — Made Kafka & Zookeeper behave, migrated EKS things and didn't drop them, saved $144K annually in securing secrets (no, did not keep any of it).
 
 **MasterCard** — Fintech data engineering. Learned that money is just numbers until compliance says otherwise.
 
