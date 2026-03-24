@@ -1,8 +1,15 @@
 ---
-layout: post
+layout: single
 title: "Building a Privacy-Aware LLM Gateway: Architecture Deep-Dive"
 date: 2026-03-20
-categories: [llm, infrastructure, python]
+categories: [llm, infrastructure, smart gateway, python]
+tags: [python, privacy, observability, distributed-systems]
+toc: true
+toc_sticky: true
+header:
+  overlay_color: "#1a1a2e"
+  overlay_filter: "0.5"
+excerpt: "Part 1 of 2: Design decisions, trade-offs, and lessons from building inference-sentinel"
 ---
 
 # Building a Privacy-Aware LLM Gateway: Architecture Deep-Dive
