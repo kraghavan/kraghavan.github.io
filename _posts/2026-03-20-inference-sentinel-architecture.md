@@ -103,26 +103,26 @@ This mermaid diagram looks better
 flowchart TB
     subgraph INPUT["Request Flow"]
         REQ["POST /v1/chat/completions"]
-        CLASSIFY["Classification<br/>Regex → NER → Tier 0-3"]
+        CLASSIFY["Classification: Regex then NER then Tier 0-3"]
     end
 
-    subgraph SESSION["Session Stickiness — One-Way Trapdoor"]
-        SID["Session ID = SHA256(IP + daily salt)"]
-        CHECK{"Session<br/>state?"}
-        ELIGIBLE["CLOUD_ELIGIBLE<br/>Can use cloud or local"]
-        LOCKED["LOCAL_LOCKED<br/>🔒 Permanent — never back to cloud"]
-        PII{"PII in<br/>request?"}
-        LOCK_ACTION["🚨 LOCK SESSION<br/>+ save to rolling buffer"]
+    subgraph SESSION["Session Stickiness: One-Way Trapdoor"]
+        SID["Session ID = SHA256 of IP + daily salt"]
+        CHECK{"Session state?"}
+        ELIGIBLE["CLOUD_ELIGIBLE: Can use cloud or local"]
+        LOCKED["LOCAL_LOCKED: Permanent, never back to cloud"]
+        PII{"PII in request?"}
+        LOCK_ACTION["LOCK SESSION + save to rolling buffer"]
     end
 
-    subgraph HANDOFF["Context Handoff — On Lock Transition"]
-        BUFFER["Rolling buffer<br/>Last 5 turns OR 4000 chars"]
-        INJECT["Inject as system message:<br/>&lt;prior_context&gt;...&lt;/prior_context&gt;"]
+    subgraph HANDOFF["Context Handoff: On Lock Transition"]
+        BUFFER["Rolling buffer: Last 5 turns OR 4000 chars"]
+        INJECT["Inject as system message with prior context"]
     end
 
-    subgraph ROUTING["Backend Selection — Round-Robin Per Request"]
-        CLOUD_RR{"Cloud pool<br/>round-robin"}
-        LOCAL_RR{"Local pool<br/>round-robin"}
+    subgraph ROUTING["Backend Selection: Round-Robin Per Request"]
+        CLOUD_RR{"Cloud pool round-robin"}
+        LOCAL_RR{"Local pool round-robin"}
     end
 
     subgraph CLOUD["Cloud Backends"]
@@ -130,7 +130,7 @@ flowchart TB
         GOOGLE["gemini-2.0-flash"]
     end
 
-    subgraph LOCAL["Local Backends — Mac Mini M4"]
+    subgraph LOCAL["Local Backends: Mac Mini M4"]
         GEMMA["gemma3:4b"]
         MISTRAL["mistral"]
     end
@@ -138,22 +138,30 @@ flowchart TB
     subgraph OBS["Observability"]
         SHADOW["Shadow mode A/B comparison"]
         CTRL["Controller recommendations"]
-        PROM["Prometheus → Grafana"]
+        PROM["Prometheus to Grafana"]
     end
 
-    REQ --> CLASSIFY --> SID --> CHECK
+    REQ --> CLASSIFY
+    CLASSIFY --> SID
+    SID --> CHECK
     CHECK -->|"new session"| ELIGIBLE
     CHECK -->|"already locked"| LOCKED
     ELIGIBLE --> PII
-    PII -->|"Tier 0-1, no PII"| CLOUD_RR
+    PII -->|"Tier 0-1 no PII"| CLOUD_RR
     PII -->|"Tier 2-3 OR PII"| LOCK_ACTION
-    LOCK_ACTION --> BUFFER --> INJECT --> LOCAL_RR
+    LOCK_ACTION --> BUFFER
+    BUFFER --> INJECT
+    INJECT --> LOCAL_RR
     LOCK_ACTION -.->|"state = LOCAL_LOCKED"| LOCKED
     LOCKED --> LOCAL_RR
-    CLOUD_RR --> ANTHROPIC & GOOGLE
-    LOCAL_RR --> GEMMA & MISTRAL
-    CLOUD -.-> SHADOW --> CTRL
-    CLOUD & LOCAL --> PROM
+    CLOUD_RR --> ANTHROPIC
+    CLOUD_RR --> GOOGLE
+    LOCAL_RR --> GEMMA
+    LOCAL_RR --> MISTRAL
+    CLOUD -.-> SHADOW
+    SHADOW --> CTRL
+    CLOUD --> PROM
+    LOCAL --> PROM
 </div>
 
 ## Component 1: The Hybrid Classifier
