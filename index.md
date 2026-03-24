@@ -15,4 +15,4 @@ Senior Software Engineer • Infrastructure & AI Systems
 
 ---
 
-[GitHub](https://github.com/kraghavan) • [LinkedIn](https://linkedin.com/in/karthikaramalingam)
+[GitHub](https://github.com/kraghavan) • [LinkedIn](https://linkedin.com/in/karthikaraghavan)
