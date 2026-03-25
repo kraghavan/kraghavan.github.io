@@ -7,7 +7,7 @@ author_profile: true
 
 # Hey, I'm Karthika 👋
 
-I'm a Senior Software Engineer who has spent a decade convincing distributed systems to behave. Sometimes they listen.
+I'm a Software Engineer who has spent a decade convincing distributed systems to behave. Sometimes they dont listen.
 
 My specialty is the infrastructure nobody sees until it breaks: Kafka pipelines that handle 100K events/sec, EKS migrations that don't page you at 3am, DNS control planes that actually control things (definitely not designing this website) 
 
@@ -15,7 +15,7 @@ I also hold a PhD in Computational Complex Systems with a focus on genomics and 
 
 ## Where I've been
 
-**Cisco** — Made Kafka & Zookeeper behave, migrated EKS things and didn't drop them, saved $144K annually in securing secrets (no, did not keep any of it).
+**Cisco** — Kafka whisperer, EKS migration leader, and saved $100K+/year on secrets management. That was 60% of our team's operational budget, y'know?
 
 **MasterCard** — Fintech data engineering. Learned that money is just numbers until compliance says otherwise.
 
