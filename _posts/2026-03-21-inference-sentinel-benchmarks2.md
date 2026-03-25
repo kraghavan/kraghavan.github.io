@@ -106,7 +106,7 @@ NER was enabled during this benchmark, yet the `PERSON_NAME` entities were not d
 
 1. **Missing regex pattern:** The health insurance ID format (`[A-Z]{3}\d{9}`) is not covered by existing Tier 3 patterns, which target SSNs (`\d{3}-\d{2}-\d{4}`), credit cards (Luhn-valid sequences), and MRN patterns (`MRN:\s*\d+`).
 
-2. **NER model limitation:** spaCy's `en_core_web_sm` model failed to recognize the person names in medical record context. The phrase structure "Patient [Name], health insurance ID..." appears to confuse the model — likely because "Patient" is parsed as part of the name span, or the surrounding medical terminology disrupts entity boundary detection.
+2. **NER model limitation:** The HuggingFace Transformers BERT model (`dslim/bert-base-NER`) failed to recognize the person names in medical record context. The phrase structure "Patient [Name], health insurance ID..." appears to confuse the model — likely because "Patient" is parsed as part of the name span, or the surrounding medical terminology disrupts entity boundary detection.
 
 Examining the detection results:
 ```json
@@ -132,7 +132,7 @@ PATTERNS["health_insurance"] = r'\b(?:health\s*insurance\s*id|member\s*id)[:\s]*
 PATTERNS["patient_name"] = r'\bPatient\s+[A-Z][a-z]+\s+[A-Z][a-z]+\b'
 
 # Fix 3: Consider larger NER model for production
-# en_core_web_md or en_core_web_lg have better entity recognition
+# "accurate" mode uses Jean-Baptiste/roberta-large-ner-english
 ```
 
 The regex-first approach is particularly important here: rather than relying solely on NER for entity detection, adding domain-specific patterns provides a deterministic safety net for known sensitive formats.
@@ -382,7 +382,7 @@ Expected behavior after fixes:
 
 **Single Hardware Configuration:** Results reflect a specific hardware setup (M4 Mac Mini, 16GB). Performance characteristics will vary with different local inference hardware.
 
-**NER Model Limitations:** The lightweight spaCy model (`en_core_web_sm`) failed to detect person names in medical record contexts, revealing domain-specific NER gaps that require either fine-tuning or larger models.
+**NER Model Limitations:** The lightweight BERT NER model (`dslim/bert-base-NER`, "fast" mode) failed to detect person names in medical record contexts, revealing domain-specific NER gaps that require either fine-tuning or larger models like RoBERTa.
 
 **Session Test Methodology:** The session stickiness experiment used simulated IPs from a single host, and classification failures prevented some PII-containing requests from triggering session locks.
 
@@ -439,17 +439,18 @@ Statistical power analysis suggests n=1,000+ is required to detect failure modes
 
 #### 8.2.2 Improving NER Accuracy
 
-The current implementation uses spaCy's `en_core_web_sm` model (12MB) for named entity recognition. Several directions merit exploration:
+The current implementation uses HuggingFace Transformers with `dslim/bert-base-NER` ("fast" mode, ~400MB) for named entity recognition. Several directions merit exploration:
 
 | Model | Size | Tradeoff |
 |-------|------|----------|
-| `en_core_web_lg` | 560MB | Higher accuracy, 2-3× latency |
-| `en_core_web_trf` | 438MB | Transformer-based, best accuracy, 10× latency |
+| `dslim/bert-base-NER` (fast) | ~400MB | Current default, good speed, limited domain coverage |
+| `Jean-Baptiste/roberta-large-ner-english` (accurate) | ~1.3GB | Higher accuracy, 3-5× latency |
+| `Davlan/bert-base-multilingual-cased-ner-hrl` (multilingual) | ~700MB | Multi-language support |
 | **Fine-tuned NER** | Variable | Domain-specific entities (PHI, financial identifiers) |
 | **Presidio** | N/A | Microsoft's PII detection library, rule + ML hybrid |
 | **GLiNER** | 200MB | Zero-shot NER, no fine-tuning required |
 
-The optimal choice depends on latency budget. For sub-5ms classification, `en_core_web_sm` with expanded regex patterns may outperform larger models. For offline batch classification, transformer-based NER is viable.
+The optimal choice depends on latency budget. For sub-50ms classification, the "fast" BERT model with expanded regex patterns may outperform larger models. For offline batch classification, RoBERTa-based NER ("accurate" mode) is viable.
 
 #### 8.2.3 GPU-Accelerated Local Inference
 
@@ -624,7 +625,7 @@ If you're building LLM applications that handle sensitive data, I hope this work
 
 All 5 errors follow the pattern:
 - **Input:** Health record with insurance ID format `[A-Z]{3}\d{9}`
-- **Expected entities:** `PERSON_NAME` (not detected by spaCy in medical context)
+- **Expected entities:** `PERSON_NAME` (not detected by BERT NER in medical context)
 - **Detected entities:** `[]`
 
 ### A.2 Routing Errors
