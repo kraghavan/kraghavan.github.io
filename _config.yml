@@ -82,7 +82,7 @@ twitter:
 og_image: /assets/images/default-og.png
 
 # Analytics (optional)
-# analytics:
-#   provider: "google-gtag"
-#   google:
-#     tracking_id: "G-XXXXXXXXXX"
+analytics:
+  provider: "google-gtag"
+  google:
+    tracking_id: "G-95QC0Y988E"
