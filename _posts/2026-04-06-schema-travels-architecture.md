@@ -1,0 +1,379 @@
+# Translating SQL to NoSQL: Architecture Deep-Dive
+
+*Part 1 of 2: Design decisions, trade-offs, and algorithms behind schema-travels*
+
+---
+
+## Why I Built This
+
+Migrating from a relational SQL database to a NoSQL paradigm is notoriously difficult to automate. Every DBA has war stories: the naive migration that turned a 3-table JOIN into three round trips, or the "just flatten everything" approach that created 50GB documents.
+
+The problem I chose: **How do you automate a context-aware SQL-to-NoSQL schema migration without relying on raw, hallucination-prone LLM outputs?**
+
+The key insight: algorithms are excellent at graph clustering; LLMs are not. But algorithms lack business context. So I built a dual-engine system where deterministic algorithms do the math, and an LLM acts as a reviewing Principal Architect—bounded, structured, and unable to hallucinate schemas into existence.
+
+This post walks through every architectural decision in [schema-travels](https://github.com/kraghavan/schema-travels), including the trade-offs I considered and the bugs that taught me humility.
+
+---
+
+## System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              schema-travels                                  │
+│                                                                              │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │                        Deterministic Engine                            │  │
+│  │                                                                        │  │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                 │  │
+│  │  │  SQL Log    │    │  Access     │    │  Target     │                 │  │
+│  │  │  Parser     │───▶│  Pattern    │───▶│  Schema     │                 │  │
+│  │  │             │    │  Analyzer   │    │  Designer   │                 │  │
+│  │  │ • PostgreSQL│    │             │    │             │                 │  │
+│  │  │ • MySQL     │    │ • HotJoins  │    │ • MongoDB   │                 │  │
+│  │  │ • 10K+ qps  │    │ • Mutations │    │ • DynamoDB  │                 │  │
+│  │  └─────────────┘    │ • Co-access │    │ • Union-Find│                 │  │
+│  │                     └─────────────┘    └──────┬──────┘                 │  │
+│  └───────────────────────────────────────────────┼────────────────────────┘  │
+│                                                  │                           │
+│                                    Algorithmic Draft (JSON)                  │
+│                                                  │                           │
+│  ┌───────────────────────────────────────────────▼────────────────────────┐  │
+│  │                         LLM Review Layer                               │  │
+│  │                                                                        │  │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                 │  │
+│  │  │  Provider   │    │  Advisor    │    │  Pydantic   │                 │  │
+│  │  │  Protocol   │───▶│  (Reviewer) │───▶│  Validator  │                 │  │
+│  │  │             │    │             │    │             │                 │  │
+│  │  │ • Claude    │    │ • Critique  │    │ • Bounded   │                 │  │
+│  │  │ • GPT-4o    │    │ • Refine    │    │ • Typed     │                 │  │
+│  │  │ • Gemini    │    │ • Explain   │    │ • No schema │                 │  │
+│  │  │ • Ollama    │    │             │    │   invention │                 │  │
+│  │  └─────────────┘    └─────────────┘    └──────┬──────┘                 │  │
+│  └───────────────────────────────────────────────┼────────────────────────┘  │
+│                                                  │                           │
+│                                    Reviewed Design (JSON)                    │
+│                                                  │                           │
+│  ┌───────────────────────────────────────────────▼────────────────────────┐  │
+│  │                         Output & Caching                               │  │
+│  │                                                                        │  │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐                 │  │
+│  │  │  Cache      │    │  Terraform  │    │  NoSQL      │                 │  │
+│  │  │  Manager    │    │  Generator  │    │  Workbench  │                 │  │
+│  │  │             │    │             │    │  Export     │                 │  │
+│  │  │ • Strict    │    │ • .tf files │    │             │                 │  │
+│  │  │ • Relaxed   │    │ • GSI defs  │    │ • Import    │                 │  │
+│  │  │ • ~3s hits  │    │ • Capacity  │    │   ready     │                 │  │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘                 │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Component 1: The Statistical Ground Truth
+
+### The Problem
+
+You can design a relational database in a vacuum using normal forms. You *cannot* design a NoSQL database without knowing the access patterns.
+
+Feeding an LLM just the `CREATE TABLE` statements produces generic, unoptimized schemas. It's like asking an architect to design a house without knowing if it's for a family of four or a fraternity.
+
+### My Solution: Log-Based Pattern Analysis
+
+Before any AI is invoked, the pipeline ingests thousands of raw SQL queries (up to 10K in my benchmarks). Two analyzers extract the structural signals:
+
+| Analyzer | What It Measures | Why It Matters |
+|----------|-----------------|----------------|
+| **HotJoinAnalyzer** | Co-access frequency between tables | If `orders` and `order_items` are JOINed in 95% of queries, they belong together |
+| **MutationAnalyzer** | Write patterns per table | High-mutation tables need different caching strategies |
+
+The output is a weighted co-access matrix—essentially a graph where edge weights represent how often two tables appear together in queries.
+
+### Design Decision: Static Schema vs. Log Perusal
+
+**Trade-off considered:**
+
+| Approach | Speed | Accuracy | Limitations |
+|----------|-------|----------|-------------|
+| Static schema only | <1s | ~60% | Misses actual usage patterns |
+| Log perusal | 5-30s | ~90% | Requires query logs |
+
+**My choice:** Log perusal is non-negotiable. A schema where `users` and `user_preferences` are separate tables tells you nothing about whether they're accessed together. Query logs tell you everything.
+
+**Lesson learned:** Early versions didn't weight by query frequency. A table JOINed once in a rare admin query got the same weight as one JOINed 10,000 times per hour. Adding frequency weighting dramatically improved recommendations.
+
+---
+
+## Component 2: MongoDB Document Designer
+
+### The Problem
+
+MongoDB's core design question: **Embed or Reference?**
+
+| Strategy | When to Use | Risk |
+|----------|-------------|------|
+| **Embed** | High co-access, bounded growth | Document bloat (16MB limit) |
+| **Reference** | Independent access, unbounded growth | N+1 query patterns |
+
+Getting this wrong is expensive. Embed a million reviews inside a product document and MongoDB will hate you. Reference user addresses that are always fetched with the user and you've recreated SQL's JOIN problem.
+
+### My Solution: Confidence-Weighted Decisions
+
+The algorithm takes the co-access score from Component 1 and calculates a **Confidence Score** for each relationship:
+
+```
+Confidence = (co_access_weight × access_factor) + (bounded_growth × stability_factor)
+```
+
+- **≥ 0.85**: Strong embed recommendation (green in output)
+- **0.70-0.85**: Moderate confidence (yellow)  
+- **< 0.70**: Reference or needs human review (red)
+
+The color-coding isn't cosmetic—it tells developers where to focus their review time.
+
+### Design Decision: Schema Only vs. Schema + Queries
+
+**Trade-off considered:**
+
+| Approach | Output | Developer Effort |
+|----------|--------|-----------------|
+| Schema only | JSON structure | Developer writes queries |
+| Schema + queries | Structure + aggregation pipelines | Copy-paste ready |
+
+**My choice:** Generate both. For MongoDB, `schema-travels` outputs the exact aggregation pipelines or `findOne` queries that replace the original SQL JOINs.
+
+**Why this matters:** A schema migration isn't done when you have a new data model. It's done when your application code works. Giving developers the target schema *and* the code to query it cuts migration time significantly.
+
+---
+
+## Component 3: DynamoDB Paradigm Shift
+
+### The Problem
+
+DynamoDB isn't just "MongoDB but AWS." It's a fundamentally different paradigm:
+
+| MongoDB | DynamoDB |
+|---------|----------|
+| Flexible queries | Pre-defined access patterns |
+| Indexes added later | GSIs designed upfront |
+| Nested documents | Flat, wide-column design |
+| Query anything | Query only what you planned for |
+
+The infamous "Single-Table Design" pattern—where multiple entity types share one table with carefully crafted partition and sort keys—is powerful but alien to SQL developers.
+
+### My Solution: Union-Find Access Clustering
+
+This is where the computer science degree earns its keep. The `DynamoDBDesigner` uses a **Union-Find (Disjoint Set Union)** algorithm to cluster SQL tables based on their relationship weights.
+
+**How it works:**
+
+1. Each SQL table starts as its own cluster
+2. For each edge (co-access relationship) above a threshold weight:
+   - Find the cluster roots of both tables
+   - Union them if they're frequently accessed together
+3. Result: clusters of tables that should share a DynamoDB table
+
+```
+Input: users, orders, order_items, products, reviews
+       
+Co-access weights:
+  users ←→ orders:      0.92  (high)
+  orders ←→ order_items: 0.95  (high)
+  products ←→ reviews:   0.45  (low)
+  
+After Union-Find:
+  Cluster 1: {users, orders, order_items}  → Single-table candidate
+  Cluster 2: {products}                     → Separate table
+  Cluster 3: {reviews}                      → Separate table
+```
+
+The algorithm then generates PK/SK patterns and GSI candidates for each cluster.
+
+### Design Decision: LLM Generation vs. Algorithmic Draft
+
+**Trade-off considered:**
+
+| Approach | Consistency | Quality | Hallucination Risk |
+|----------|-------------|---------|-------------------|
+| LLM generates schema | Low | Variable | High |
+| Algorithm generates, LLM reviews | High | Consistent | Low |
+
+**My choice:** Algorithms generate the draft; LLMs review it.
+
+Union-Find is deterministic—same input always produces the same clusters. LLMs are not. Asking an LLM to "design a DynamoDB schema" is asking for creative writing. Asking it to "review this algorithmic draft and flag issues" is asking for structured critique.
+
+**Lesson learned:** Early versions let the LLM suggest entity renames during review. This broke the mapping back to the algorithmic draft, causing cryptic "Entity Not Found" errors. Now the validator explicitly forbids schema invention.
+
+---
+
+## Component 4: The Multi-Provider LLM Layer
+
+### The Problem
+
+I needed LLM review capabilities but didn't want to be locked into one provider. Different providers have different strengths, costs, and availability.
+
+### My Solution: Protocol-Oriented Provider Abstraction
+
+The `LLMProvider` protocol defines what any provider must support:
+
+| Method | Purpose |
+|--------|---------|
+| `complete()` | Generate a response |
+| `supports_json_mode` | Whether native JSON mode is available |
+| `name`, `model` | Provider identification |
+
+Any class implementing this protocol works with the Advisor:
+
+| Provider | Default Model | Cost | Best For |
+|----------|--------------|------|----------|
+| **Claude** | claude-sonnet-4 | ~$3/1M | Complex reasoning |
+| **OpenAI** | gpt-4o-mini | ~$0.15/1M | Cost-effective structured output |
+| **Gemini** | gemini-2.0-flash | ~$0.10/1M | Speed |
+| **Ollama** | llama3.1:8b | Free | Privacy, offline |
+
+### Design Decision: Agentic Generation vs. Agentic Review
+
+**Trade-off considered:**
+
+| Approach | LLM Role | Control | Consistency |
+|----------|----------|---------|-------------|
+| Agentic generation | Creator | Low | Low |
+| Agentic review | Critic | High | High |
+
+**My choice:** The LLM is a *reviewer*, not a *creator*.
+
+The prompt never says "design a schema." It says "here is the algorithmic draft—critique it." The LLM can flag issues:
+
+> "The algorithm suggested Single-Table Design here, but this Partition Key has low cardinality and will cause a hot partition. Consider adding a write-sharding suffix."
+
+But it cannot invent new tables or fundamentally restructure the design. Pydantic validators enforce this boundary.
+
+---
+
+## Component 5: Caching & Infrastructure Output
+
+### The Problem
+
+LLM calls are slow (2-30 seconds) and expensive. Re-analyzing the same schema during CI/CD is wasteful.
+
+### My Solution: Dual-Mode Hashing
+
+| Mode | Hash Includes | Use Case |
+|------|--------------|----------|
+| **Relaxed** | Schema structure, log patterns | Development iteration |
+| **Strict** | Full payload including metadata | Production, testing |
+
+**Relaxed mode** hashes only the structural elements. Minor metadata changes hit the cache, dropping a 25-second pipeline to ~3 seconds.
+
+**Strict mode** requires cryptographic match of the entire input. Essential for reproducible E2E testing.
+
+### Closing the Loop: Infrastructure as Code
+
+A schema design on paper is useless if it can't be deployed. The pipeline terminates by generating actual IaC:
+
+| Output | Format | Use |
+|--------|--------|-----|
+| **Terraform** | `.tf` | `terraform apply` ready |
+| **NoSQL Workbench** | `.json` | Visual modeling, data import |
+
+The Terraform output includes table definitions, GSI configurations, and capacity settings. Not a template—actual runnable infrastructure.
+
+**Lesson learned:** My Terraform formatter had a subtle bug—it generated `$${table_name}` instead of `"${table_name}"` in some edge cases. The E2E test matrix caught this because it validated the `.tf` files could be parsed by Terraform's HCL parser.
+
+---
+
+## What I'd Do Differently
+
+### 1. DynamoDB Query Translation from Day One
+
+The MongoDB module translates SQL JOINs to aggregation pipelines. The DynamoDB module only outputs schemas—no Boto3 query code. This asymmetry bothers me.
+
+Generating `dynamodb.query(KeyConditionExpression=...)` calls alongside the schema would make the DynamoDB path as developer-friendly as MongoDB.
+
+### 2. Stricter Entity Name Validation
+
+The LLM occasionally renames entities during review ("I'll call this `CustomerOrders` instead of `user_orders`"). This breaks the mapping back to the algorithmic draft.
+
+The fix was a Pydantic validator that rejects any entity name not in the original input. But I should have anticipated this—LLMs love to be "helpful" by renaming things.
+
+### 3. Cache Key Design Up Front
+
+I added the `dynamodb_mode` parameter to cache keys late. This meant cached results from `auto` mode were incorrectly served for `single` mode requests.
+
+Cache key design should happen during architecture, not debugging.
+
+---
+
+## The Bigger Picture: What This Actually Solves
+
+Let me step back from the implementation details and tell you what `schema-travels` actually achieves.
+
+**The Old Way:** A senior engineer spends 2-3 weeks analyzing query logs, drawing ER diagrams on whiteboards, debating embed-vs-reference decisions in meetings, and manually translating that into DynamoDB access patterns. Then they write Terraform by hand and pray they didn't miss a GSI.
+
+**The New Way:** Feed the tool your PostgreSQL logs and schema. Get a reviewed, confidence-scored design with deployable infrastructure in under a minute. Spend those 2-3 weeks on the parts that actually require human judgment—data migration strategy, application refactoring, rollback planning.
+
+This isn't about replacing engineers. It's about replacing the *tedious parts* of engineering so we can focus on the *interesting parts*.
+
+### The Core Innovation: Bounded AI
+
+The fundamental insight behind this architecture is that **LLMs should critique, not create**.
+
+| Approach | What Can Go Wrong |
+|----------|-------------------|
+| "LLM, design me a schema" | Hallucinated tables, inconsistent naming, unbounded creativity |
+| "LLM, review this algorithmic draft" | Bounded feedback, structured output, deterministic baseline |
+
+By forcing the AI into a reviewer role with Pydantic-enforced boundaries, we get the benefits of LLM intelligence (business context, heuristic reasoning, natural language explanations) without the chaos of unbounded generation.
+
+This pattern—**algorithmic draft + bounded LLM review**—is applicable far beyond schema migration. It's how I'd approach any problem where you need AI assistance but can't afford hallucinations.
+
+---
+
+## What's Next: GraphRAG for Enterprise Scale
+
+The current implementation handles schemas with 10-50 tables comfortably. But what happens when you're migrating a legacy enterprise system with 500 tables? 1,000? 
+
+At that scale, the co-access matrix becomes unwieldy, the visualization becomes spaghetti, and even Union-Find starts to strain under the combinatorial explosion.
+
+**The roadmap:** GraphRAG-powered schema analysis.
+
+The idea is straightforward:
+1. **Store the schema graph** in a proper graph database (NetworkX + SQLite for now, Neo4j for enterprise)
+2. **Embed table semantics** using the same sentence transformers I use for shadow mode similarity
+3. **Query with natural language**: "Show me all tables related to order fulfillment" or "Which clusters would be affected if we split the users table?"
+
+This transforms schema-travels from a migration tool into a **schema intelligence platform**. Instead of processing everything at once, you can explore the graph, ask questions, and migrate incrementally—cluster by cluster, bounded by what your team can absorb.
+
+The groundwork is already laid. The co-access matrix is a graph. The Union-Find clusters are subgraphs. Adding retrieval-augmented generation on top is engineering, not research.
+
+---
+
+## Coming Up: Part 2
+
+In Part 2, we'll dive into the E2E test results across the provider × target matrix:
+
+- **5 providers × 2 targets** = 10 test combinations
+- Latency benchmarks by provider and dataset size
+- How the test matrix caught a cache drift bug in DynamoDB Terraform output
+- Similarity scores across providers (spoiler: Ollama running locally is closer to Claude than you'd expect)
+
+---
+
+## Final Thoughts
+
+I've been building distributed systems for over a decade. In that time, I've seen plenty of "AI-powered" tools that are really just prompt wrappers—impressive demos that fall apart in production.
+
+`schema-travels` is my answer to the question: *How do you build AI-assisted tooling that a software engineer would actually trust?*
+
+The answer, it turns out, is the same principle that makes distributed systems reliable: **don't trust any single component**. Algorithms provide the deterministic foundation. LLMs provide the intelligence. Pydantic provides the guardrails. Caching provides the economics. And comprehensive testing provides the confidence.
+
+The schema migration problem was just the vehicle. The real artifact is an architecture pattern for building AI tools that are auditable, reproducible, and most importantly— *boring in production*.
+
+Why? because the best infrastructure is the kind you forget exists.
+
+---
+
+**GitHub:** [github.com/kraghavan/schema-travels](https://github.com/kraghavan/schema-travels)
+
+*Questions, feedback, or war stories from your own migrations? Connect with me on [LinkedIn](https://linkedin.com/in/karthikaraghavan).*
