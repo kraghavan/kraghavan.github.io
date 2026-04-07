@@ -218,7 +218,7 @@ const projects = {
   indic: {
     title: "indicflow",
     hook: "NLP for the other 1.4 billion people",
-    desc: "Document analysis for Hindi, Tamil, Telugu, Bengali, Urdu, and more. Supports PDF, DOCX, images via Vision API. Handles Urdu RTL reshaping because text direction shouldn't be an afterthought.",
+    desc: "Sentiment & context analysis for Hindi, Tamil, Telugu, Bengali, Urdu, and more documents. Supports PDF, DOCX, images via Vision API. Handles Urdu RTL reshaping because text direction shouldn't be an afterthought.",
     tech: "Python, Gemini API, Vision, PDF processing",
     stats: "8 languages • Pipeline + Deep analysis modes • RTL support",
     github: "https://github.com/kraghavan/indicflow",
