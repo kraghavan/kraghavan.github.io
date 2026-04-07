@@ -202,7 +202,7 @@ const projects = {
     hook: "Your SQL schema wants to be a DynamoDB table. I translate.",
     desc: "Analyzes SQL schemas, detects access patterns, suggests partition keys, and generates NoSQL based schema. Outputs Terraform HCL and NoSQL Workbench JSON. Because migration planning shouldn't require a whiteboard.",
     tech: "Python, SQL parsing, DynamoDB, MongoDB, Terraform",
-    stats: "On PyPI • v2.3.0 • Single-table design recommendations",
+    stats: "On PyPI • v2.3.0 • NoSQL database design recommendations",
     github: "https://github.com/kraghavan/schema-travels",
     links: '<a href="https://github.com/kraghavan/schema-travels">GitHub</a><a href="https://pypi.org/project/schema-travels/">PyPI</a>'
   },
