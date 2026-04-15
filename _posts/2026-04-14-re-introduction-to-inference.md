@@ -1,5 +1,5 @@
 ---
-layout: post
+layout: single
 title: "What Is LLM Inference, Really? A Deep Technical Walkthrough"
 date: 2026-04-14
 categories: [llm-infrastructure, inference]
