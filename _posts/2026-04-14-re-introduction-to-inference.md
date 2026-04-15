@@ -719,7 +719,7 @@ To help you debug that 2:00 AM latency spike, here is the final synthesis of the
 * **Attention is the Relationship Engine**: It uses Queries, Keys, and Values to calculate which tokens matter to each other. It’s why the model understands context, but it's also why memory pressure scales with your prompt length.
 * **Continuous Batching is the Efficiency Unlock**: By batching at the "word" level rather than the "request" level, you keep the GPU busy even when individual users have wildly different response lengths.
 
-The ultimate constraint in scaling model serving isn't raw compute power, but memory bandwidth and the strict management of the KV Cache. By understanding the mechanical realities beneath the hood—like PagedAttention, continuous batching, and quantization—infrastructure engineers can move past guesswork and scientifically optimize for the metrics that dictate user experience: **TTFT** and **TPOT**.
+The ultimate constraint in scaling model serving isn't raw compute power, but memory bandwidth and the strict management of the KV Cache. By understanding the mechanical realities beneath the hood—like PagedAttention, continuous batching, and quantization—infrastructure engineers can move past guesswork and systematically optimize for the metrics that dictate user experience: **TTFT** and **TPOT**.
 
 ## Conclusion: The Field Is Moving, The Fundamentals Aren't
 
