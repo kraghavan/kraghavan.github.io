@@ -716,11 +716,10 @@ Yet, the operational reality remains unchanged. When a model is in production an
 
 Mastering the mechanics of inference separates a fragile AI prototype from a resilient production platform. The inference stack will keep evolving. The need for a rigorous mental model to debug it won't.
 
-In the next post, we’ll take these first principles and see how they dictate the architectural trade-offs behind the major inference engines: Ollama, vLLM, TGI, and TensorRT-LLM.
-
 ---
 
-**Next up:** [Post 2 — The Inference Stack: Ollama vs vLLM vs TGI vs TensorRT-LLM in practice](/2025-01-02-the-inference-stack), and [Post 3 — Real benchmarks on an M4 Mac Mini](/2025-01-03-vllm-apple-silicon-benchmark), where these abstractions meet actual hardware and produce numbers you can argue with.
+**Next up:** In the next post, we’ll take these first principles and see how they dictate the architectural trade-offs behind the major inference engines: Ollama, vLLM, TGI, and TensorRT-LLM.
+
 
 ---
 
