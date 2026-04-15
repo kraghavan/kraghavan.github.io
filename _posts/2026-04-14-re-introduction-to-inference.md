@@ -447,7 +447,8 @@ vLLM, TGI, and TensorRT-LLM all implement continuous batching. Ollama does not (
 
 Now that you know what's happening, the metrics become obvious rather than mysterious.
 
-![Metrics from Model on Grafana Dashboard](/assets/images/llm-inference/grafana-metrics2.png)
+![Grafana Metrics Dashboard — TTFT, ITL, KV Cache Hit Rate, KV Cache Usage](/assets/images/llm-inference/grafana-metrics.png)
+*Real metrics from a running llm-d deployment: TTFT p50 at 15ms, ITL p50 at 5ms, KV cache prefix hit rate at 80.6% — exactly the four numbers you should have on your wall during an incident.*
 
 ### TTFT — Time to First Token
 
