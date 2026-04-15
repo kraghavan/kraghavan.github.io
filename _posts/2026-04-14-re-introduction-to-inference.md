@@ -22,7 +22,9 @@ No "and then the transformer does its thing." No skipped steps. Strap in.
 
 ---
 
-![LLM Inference Pipeline](/assets/images/llm-inference/gemini-generated-llm-inference-pipeline.png)
+<figure style="max-width:480px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/gemini-generated-llm-inference-pipeline.png" alt="LLM Inference Pipeline" style="width:100%;">
+</figure>
 
 ---
 
@@ -71,7 +73,9 @@ A token is not a character, and it's not a word. It's a chunk of text that appea
 
 The result is a vocabulary of roughly 32,000–128,000 tokens, each with a corresponding integer ID. The model never sees your text — it sees a list of numbers.
 
-![Tokenization with BPE](/assets/images/llm-inference/encoding-bpe.png)
+<figure style="max-width:720px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/encoding-bpe.png" alt="Tokenization with BPE" style="width:100%;">
+</figure>
 
 Take our example prompt: `"The cat sat"`
 
@@ -129,7 +133,9 @@ Shape: [3 tokens × 3 dims] = a matrix of floats
 
 These vectors aren't random. They're the result of training — the model has learned that "cat" and "dog" live close together in this space, and "cat" and "quantum mechanics" are far apart. The geometry encodes semantic meaning.
 
-![Embedding Lookup Process](/assets/images/llm-inference/embedding-lookup-process.png)
+<figure style="max-width:720px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/embedding-lookup-process.png" alt="Embedding Lookup Process" style="width:100%;">
+</figure>
 
 ### How Do the Model Weights Help Here?
 
@@ -165,7 +171,9 @@ Continuing our example. After adding positional information:
 
 The position vectors are small adjustments. Their real value is that when attention is computed later, the model can tell whether two tokens are adjacent or 200 positions apart.
 
-![Positional Embeddings Diagram](/assets/images/llm-inference/positional-embeddings-diagram.png)
+<figure style="max-width:720px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/positional-embeddings-diagram.png" alt="Positional Embeddings Diagram" style="width:100%;">
+</figure>
 
 ### CPU Bottleneck in Prefill?
 
@@ -235,7 +243,9 @@ Sample: " the" ✓
 
 And so it continues: " mat" → "." → `<end>` token → stop.
 
-![Key Value Cache Growth](/assets/images/llm-inference/key-value-cache-growth.png)
+<figure style="max-width:720px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/key-value-cache-growth.png" alt="Key Value Cache Growth" style="width:100%;">
+</figure>
 
 ### The Sampling Step (Where Creativity Lives)
 
@@ -346,7 +356,9 @@ Output = 0.35 × V_The + 0.55 × V_cat + 0.10 × V_sat
 
 The output for " sat" is now a blend of information from all tokens, weighted by relevance. After 32 such layers, the model has a rich, contextualized representation of every token in the sequence.
 
-![Attention Mechanism](/assets/images/llm-inference/attention-mechanism.png)
+<figure style="max-width:720px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/attention-mechanism.png" alt="Attention Mechanism" style="width:100%;">
+</figure>
 
 
 ### Paged Attention: Virtual Memory for KV Cache
@@ -447,8 +459,10 @@ vLLM, TGI, and TensorRT-LLM all implement continuous batching. Ollama does not (
 
 Now that you know what's happening, the metrics become obvious rather than mysterious.
 
-![Grafana Metrics Dashboard — TTFT, ITL, KV Cache Hit Rate, KV Cache Usage](/assets/images/llm-inference/grafana-metrics.png)
-*Real metrics from a running llm-d deployment: TTFT p50 at 15ms, ITL p50 at 5ms, KV cache prefix hit rate at 80.6% — exactly the four numbers you should have on your wall during an incident.*
+<figure style="max-width:900px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/grafana-metrics.png" alt="Grafana Metrics Dashboard" style="width:100%;">
+  <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">Real metrics from a running llm-d deployment: TTFT p50 at 15ms, ITL p50 at 5ms, KV cache prefix hit rate at 80.6% — exactly the four numbers you should have on your wall during an incident.</figcaption>
+</figure>
 
 ### TTFT — Time to First Token
 
@@ -574,7 +588,9 @@ Total TTFT at p95:     300-500ms under load (queuing dominates)
 Not all inference engines are created equal, and the right tool depends on your constraints.
 
 
-![LLM Inference Engines Comparison](/assets/images/llm-inference/llm-inference-engine-comparison.png)
+<figure style="max-width:800px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/llm-inference-engine-comparison.png" alt="LLM Inference Engines Comparison" style="width:100%;">
+</figure>
 
 ### Ollama
 - **Origin:** Open source, community  
