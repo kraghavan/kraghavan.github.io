@@ -1,11 +1,14 @@
 ---
 layout: post
 title: "What Is LLM Inference, Really? A Deep Technical Walkthrough"
-date: 2025-04-14
+date: 2026-04-14
 categories: [llm-infrastructure, inference]
 tags: [vllm, inference, ttft, tpot, kv-cache, attention, tokenization, sre, transformers]
 series: "LLM Inference from First Principles (A Re-introduction)"
 series_part: 1
+toc: true
+toc_label: "On this page"
+toc_sticky: true
 excerpt: >
   An Engineer's annotated tour through what actually happens when you hit send —
   from bytes to tokens to embeddings to attention to the word your model finally spits out.
