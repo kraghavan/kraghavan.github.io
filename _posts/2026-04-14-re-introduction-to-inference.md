@@ -724,6 +724,8 @@ Mastering the mechanics of inference separates a fragile AI prototype from a res
 
 ---
 
-*I'm an infrastructure engineer with 11 years in distributed systems (D-Wave, Enbala, MasterCard, Cisco), currently going deep on LLM serving and inference optimization. This series is grounded in hands-on experiments — Mac Mini to Lambda GH200 to RunPod A100 clusters. I write what I actually learned, including the parts that didn't work.*
+*I'm an infrastructure engineer with 11+ years in distributed systems (D-Wave, Enbala, MasterCard, Cisco), currently going deep on LLM serving and inference optimization. This series is grounded in hands-on experiments — Mac Mini to Lambda Labs GH200 to RunPod A100 clusters. I write what I actually learned, including the parts that didn't work.*
 
 *Find me on GitHub: [kraghavan](https://github.com/kraghavan)*
+
+*Find me on Linkedin: [Karthika Raghavan](https://linkedin.com/in/karthikaraghavan)*
