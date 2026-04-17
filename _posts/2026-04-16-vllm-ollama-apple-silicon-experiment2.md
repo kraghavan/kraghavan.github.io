@@ -26,6 +26,18 @@ This post is the hands-on companion to [Post 1](/llm-infrastructure/inference/20
 **Load testing:** vegeta + Locust  
 **Gateway experiment:** kind cluster + nginx reverse proxy
 
+<figure style="max-width:800px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/setup-architecture.png" 
+       alt="Local inference setup — vllm-metal serving Qwen3-0.6B-4bit, Prometheus and Grafana via Docker Compose, Locust and vegeta for load testing, nginx on kind as a K8s gateway experiment" 
+       style="width:100%;">
+  <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
+    The full local setup: vllm-metal serving Qwen3-0.6B-4bit on M4 Mac Mini unified memory, 
+    Prometheus scraping <code>/metrics</code> every 5s, Grafana dashboards rendering live, 
+    Locust and vegeta generating load. The kind cluster with nginx is the K8s gateway 
+    experiment — simulating the Envoy position in a production llm-d deployment.
+  </figcaption>
+</figure>
+
 ---
 
 ## Why Apple Silicon for This Experiment?
