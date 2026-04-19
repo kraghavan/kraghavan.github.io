@@ -1,7 +1,7 @@
 ---
 layout: single
 title: "Deploying llm-d on a Cloud GPU — The 10 Things Nobody Tells You"
-date: 2026-04-18
+date: 2026-04-17
 categories: [llm-infrastructure, inference]
 tags: [llm-d, kubernetes, k3s, helm, vllm, gpu, lambda-labs, gh200, arm64, deployment, sre]
 series: "LLM Inference from First Principles"
