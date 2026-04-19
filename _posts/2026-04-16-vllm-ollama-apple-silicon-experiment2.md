@@ -474,6 +474,6 @@ What the Mac Mini can't answer: what happens when you separate prefill and decod
 
 ---
 
-*All experiments run on M4 Mac Mini 16GB, vllm-metal 0.13.0, Qwen3-0.6B-4bit. Scripts will be made available soon via github repositoriy. I'm an platform engineer with 11+ years in distributed systems currently going deep on LLM serving. I write what I actually measured, including the parts that hit walls.*
+*All experiments run on M4 Mac Mini 16GB, vllm-metal 0.13.0, Qwen3-0.6B-4bit. Scripts will be made available soon via github repository. I'm an platform engineer with 11+ years in distributed systems currently going deep on LLM serving. I write what I actually measured, including the parts that hit walls.*
 
 *[GitHub](https://github.com/kraghavan) · [LinkedIn](https://linkedin.com/in/karthikaraghavan)*

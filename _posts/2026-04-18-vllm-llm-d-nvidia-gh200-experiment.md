@@ -116,7 +116,7 @@ The second session was slightly more expensive because the P/D disaggregation se
 
 For context: $35.78 for two full days of hands-on GPU infrastructure experiments is genuinely reasonable. A single A100 hour on AWS is $3.50+. Lambda Labs on-demand pricing is competitive precisely because availability isn't guaranteed — you trade reliability for cost.
 
-**One important note for job seekers:** I'm running these experiments to gain "production like experience", which means I'm deliberate about GPU spend. On-demand instances that you terminate when done are the right strategy here — avoid reserved instances or always-on setups until you have a specific recurring workload that justifies the commitment.
+**One important note for LLMOps Researchers:** I'm running these experiments to gain "production like experience", which means I'm deliberate about GPU spend. On-demand instances that you terminate when done are the right strategy here — avoid reserved instances or always-on setups until you have a specific recurring workload that justifies the commitment.
 
 ---
 
@@ -693,6 +693,6 @@ The deployment pain was worth it. The numbers make that clear.
 
 ---
 
-*Deployed on Lambda Labs GH200 480GB, K3s, llm-d v0.4.0, Qwen3-0.6B, vllm/vllm-openai:latest. Scripts in [gpu-labs](https://github.com/kraghavan/gpu-labs). Platform engineer with 11+ years in distributed systems going deep on LLM serving infrastructure.*
+*Deployed on Lambda Labs GH200 480GB, K3s, llm-d v0.4.0, Qwen3-0.6B, vllm/vllm-openai:latest. Scripts will be made available soon via github repository. Platform engineer with 11+ years in distributed systems going deep on LLM serving infrastructure.*
 
 *[GitHub](https://github.com/kraghavan) · [LinkedIn](https://linkedin.com/in/karthikaraghavan)*
