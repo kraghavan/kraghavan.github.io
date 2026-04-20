@@ -31,6 +31,10 @@ This post is the payoff — and more than that, it's an attempt to say something
 
 Most inference benchmarks treat hardware as a footnote — "tested on an A100" — without explaining why the hardware choice matters architecturally. The GH200 is worth understanding properly because it represents a design direction that the industry is converging on, and it changes some assumptions about what's possible in inference.
 
+One quick note before the specs: the GH200 is technically a unified memory architecture — just like the M4 Mac Mini from the previous post. CPU and GPU share the same address space without copying data between them. The Mac Mini has 16GB at roughly 200 GB/s. The GH200 has 576GB at up to 4,000 GB/s.
+
+The GH200 is technically unified memory — just like the M4 Mac Mini. One costs $799. The other costs $2.29 per hour and will make you feel considerably better about your Mac Mini purchase. Same architectural principle, considerably different ambitions — and as the numbers in this post will show, considerably different outcomes.
+
 ### Grace Hopper — One Package, Two Chips, One Memory Bus
 
 The GH200 is not a GPU. It's a **Grace Hopper Superchip** — NVIDIA's Grace CPU (72 ARM Neoverse V2 cores) and an H100 Hopper GPU die, connected on the same package via **NVLink-C2C** (chip-to-chip).
