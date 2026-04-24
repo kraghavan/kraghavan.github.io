@@ -121,7 +121,7 @@ One distinction worth making explicit before the taxonomy:
 The patterns diverge at the retrieval layer. They converge again at the LLM layer, where everything is embeddings once more.
 
 <figure style="max-width:720px;margin:2rem auto;text-align:center;">
-  <img src="/assets/images/rag-as-memory/modern-embedding-pipeline.png" alt="Modern Embedding Pipeline" style="width:100%;">
+  <img src="/assets/images/rag-as-memory/modern-embedding-pipeline-2.png" alt="Modern Embedding Pipeline" style="width:100%;">
   <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
   The top stage, labeled "Stage 1: Tokenization," takes the input text phrase "retrieval-augmented generation" and visualizes it being processed. Following a downward arrow, the "Stage 2: Embedding Matrix Lookup" box illustrates the use of token IDs to access pre-trained representations. The final stage, labeled "Stage 3: Vector Space," provides a visual model of how these embeddings cluster semantically.
   </figcaption>
@@ -144,7 +144,7 @@ Seven meaningfully distinct RAG patterns. They differ in **how they store knowle
 | Cache-Augmented | LLM KV cache (in-context) | None — corpus lives in context window | Small, stable, high-query-rate corpora |
 
 <figure style="max-width:720px;margin:2rem auto;text-align:center;">
-  <img src="/assets/images/rag-as-memory/rag-patterns.png" alt="Retrival Augumented Memory - Externalized Memory" style="width:100%;">
+  <img src="/assets/images/rag-as-memory/rag-patterns-2.png" alt="Retrival Augumented Memory - Externalized Memory" style="width:100%;">
   <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
   A visual guide to seven essential Retrieval-Augmented Generation (RAG) architectures, including Vector, Graph, Hybrid, and Agentic models. Each branch defines the core mechanism and primary use cases using clean diagrams and neon technical styling. 
   </figcaption>
@@ -172,9 +172,9 @@ Documents are split into segments (chunks), each chunk is converted into a dense
 User query → Embedding model → ANN search → Top-K chunks → LLM context → Response
 ```
 
-At query time, the question is embedded with the same model, and the database finds the stored vectors closest to it — approximate nearest neighbours (ANN). Those chunks are assembled into the LLM's context window.
+At query time, the question is embedded with the same model, and the database finds the stored vectors closest to it — approximate nearest neighbours (ANN). *ANN search trades a small amount of accuracy for significant speed: instead of comparing your query against every vector in the database, it uses indexing structures (HNSW, IVF) to find the closest matches in milliseconds across millions of vectors.* Those matching chunks are assembled into the LLM's context window.
 
-![Vector RAG pipeline — data embedding, semantic space mapping, query routing, neighbourhood-scoped retrieval, and LLM enrichment](/assets/images/rag-as-memory/vector-RAG.png)
+![Vector RAG pipeline — data embedding, semantic space mapping, query routing, neighbourhood-scoped retrieval, and LLM enrichment](/assets/images/rag-as-memory/vector-RAG-2.png)
 *Five-stage vector RAG pipeline: from document ingestion through to LLM semantic enrichment.*
 
 ### Chunking: The Most Underrated Decision
@@ -418,7 +418,7 @@ Documents are indexed by their structural elements: headings, sections, metadata
 
 ## 4. Hybrid RAG — Dense + Sparse Combined
 
-Hybrid RAG runs vector similarity search and BM25 sparse retrieval in parallel, then merges the results. The standard fusion approach is **Reciprocal Rank Fusion (RRF)** — rank candidates from each retriever independently, then combine ranks to produce a unified list.
+Hybrid RAG runs vector similarity search and BM25 sparse retrieval in parallel, then merges the results. The standard fusion approach is **Reciprocal Rank Fusion (RRF)** — rank candidates from each retriever independently, then combine ranks to produce a unified list. *The intuition: instead of trying to reconcile scores across two different scales (cosine similarity vs. BM25 term frequency), RRF ignores the raw scores entirely and only looks at rank position. A document ranked #2 by both retrievers beats one ranked #1 by only one of them.*
 
 ```
 Query → Dense retriever  → ranked list A ─┐
@@ -427,7 +427,7 @@ Query → Dense retriever  → ranked list A ─┐
 
 **Why it works:** Dense retrieval is strong on semantics and paraphrase; sparse retrieval is strong on keywords and exact terms. A query like "what is NVIDIA's NVLink-C2C bandwidth specification?" benefits from both — semantic understanding of the concept *and* exact keyword matching of the specification figure.
 
-**Reranking** is a common addition: a cross-encoder model that scores (query, chunk) pairs more precisely than initial retrieval. Cohere Rerank, BGE Reranker, and Jina Reranker are the standard choices. Reranking is expensive (linear in retrieved candidates) but materially improves precision for high-value queries. Add it when precision matters more than the latency cost.
+**Reranking** is a common addition: a cross-encoder model that scores (query, chunk) pairs more precisely than initial retrieval. *A standard embedding model encodes the query and the chunk separately, then compares vectors — fast but coarse. A cross-encoder reads the query and chunk together in a single forward pass, attending across both simultaneously — much slower, but significantly more accurate at judging true relevance.* Cohere Rerank, BGE Reranker, and Jina Reranker are the standard choices. Reranking is expensive (linear in retrieved candidates) but materially improves precision for high-value queries. Add it when precision matters more than the latency cost.
 
 **When to default to this:** Hybrid RAG is the sensible production default for mixed corpora — some documents structured, some not, queries varying in specificity. Weaviate has native hybrid search. For Pinecone or pgvector, you run both retrievers and implement RRF yourself, which is roughly 30 lines of Python.
 
@@ -639,7 +639,7 @@ Four questions determine which pattern your problem needs.
 | High | Graph RAG, Agentic RAG, Self-RAG (requires fine-tuned model) |
 
 <figure style="max-width:720px;margin:2rem auto;text-align:center;">
-  <img src="/assets/images/rag-as-memory/optimal-RAG-pattern.png" alt="An Optimal RAG Pattern" style="width:100%;">
+  <img src="/assets/images/rag-as-memory/optimal-RAG-pattern-2.png" alt="An Optimal RAG Pattern" style="width:100%;">
   <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
   A professional infographic flowchart for selecting the optimal RAG pattern. Starting with data structure and query types, it guides users through core retrieval approaches (Vector, BM25, Graph, SQL) and integrates specialized patterns (Agentic, Self-RAG, Cache-Augmented) for multi-step reasoning, hallucination control, and high performance. Dark background with teal accents.
   </figcaption>
