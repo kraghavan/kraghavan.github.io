@@ -359,7 +359,7 @@ None of that changes the core conclusion:
 
 **Treating LLM agent conversations as first-class telemetry — alongside traces, metrics, and logs — is the right architecture for the agentic era.** The patterns established here: conversation threading, per-agent cost tracking, quality evaluation as an SLO — these are patterns that will matter at every company running AI agents in production.
 
-As a staff SRE building toward LLM infrastructure roles, this experiment confirms the intersection I care about: SRE rigour applied to LLM systems. The tooling is here. The mental models transfer. The work is real.
+As an SRE building toward LLM infrastructure roles, this experiment confirms the intersection I care about: SRE rigour applied to LLM systems. The tooling is here. The mental models transfer. The work is real.
 
 ---
 
