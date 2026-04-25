@@ -40,7 +40,12 @@ The mechanism that makes this work is **KV cache transfer**. When a prefill pod 
 
 llm-d uses **NIXL** ([NVIDIA Inference Xfer Library](https://github.com/ai-dynamo/nixl)) for this transfer. NIXL is designed to move KV cache blocks between pods over high-bandwidth interconnects — specifically InfiniBand or RoCE RDMA ([NIXL transport backends](https://github.com/ai-dynamo/nixl#supported-backends)). The transfer happens over port 5600 via a [routing sidecar](https://github.com/llm-d/llm-d-routing-sidecar) injected into each pod.
 
-<!-- [IMAGE STUB — Gemini prompt: "P/D disaggregation architecture diagram. Dark background, teal and green accents, professional technical style. Show request flow: Client → Istio Gateway → EPP (Endpoint Picker) → two separate pools. Left pool: 'Prefill Pod' labeled 'compute-bound, bursty' with KV Cache blocks being generated. Right pool: 'Decode Pod' labeled 'memory-bandwidth-bound, steady' with KV Cache blocks being consumed. In the middle: a bold arrow labeled 'NIXL KV Transfer (RDMA / NVLink)' going from prefill to decode. Below the arrow, add a label: 'Requires: separate physical GPUs + RDMA interconnect'. Show port 5600 label on the transfer arrow. Also show that EPP routes new requests to prefill, then forwards to decode. Dark SRE-style infographic, no clip art."] -->
+<figure style="max-width:900px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/p-d-disaggregation-architecture-diagram.png" alt="Grafana Overview — 0 alerts, 32 dashboards, API server healthy on instance xxx.xxx.xx.186" style="width:100%;">
+  <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
+    A detailed breakdown of the disaggregated inference request flow. The Endpoint Picker (EPP) intelligently routes new requests to compute-bound Prefill Pods, which generate the initial KV Cache. This cache is then transferred via NIXL (over RDMA/NVLink on port 5600) to memory-bandwidth-bound Decode Pods for steady-state token generation. This separation eliminates inter-phase contention and allows for independent scaling of physical GPU resources tailored to the specific workload type.
+  </figcaption>
+</figure>
 
 The values.yaml for this guide makes the architecture explicit:
 
