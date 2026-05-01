@@ -160,6 +160,7 @@ The ownership model here matters: **platform teams own L2, ML teams own L3.** Pl
     A technical architecture diagram showing the Kong API Gateway as a traffic management layer. On the left, traffic from NGINX feeds into the gateway. At the top of Kong, three consumer identities are defined: 'Internal Team A' with a 500 req/min limit, 'External Partner B' with 100 req/min, and 'Public API Tier' with 20 req/min. Inside the Kong gateway block, requests pass sequentially through three stacked plugin boxes labeled 'key-auth', 'rate-limiting (per consumer)', and 'http-log (audit trail)', which are highlighted with teal accents. Finally, processed requests flow out of Kong via a single outbound arrow to LiteLLM (L3) on the right. The diagram uses a clean flowchart style with a muted color scheme against a grey background.
   </figcaption>
 </figure>
+
 ---
 
 ## Layer 3 — LLM-Aware Proxy (LiteLLM / PortKey)
@@ -226,6 +227,7 @@ Provider API keys belong in a secrets manager, not in this config file. A leaked
     This diagram provides a technical schematic of the LiteLLM Smart Routing and Caching Architecture. It illustrates how the LiteLLM API Gateway manages inbound chat completion requests from a Kong proxy. The gateway utilizes a Dynamic Router with a least-busy strategy to distribute traffic across Primary, Fallback, and Emergency backends (private GPU clusters, Anthropic Claude API, and OpenAI GPT-4o API, respectively). Simultaneously, it utilizes an integrated Redis Distributed Cache for immediate response on cache hits, explicitly highlighting a 'zero GPU' computation path for repeat queries. The system ensures a reliable HTTP 200 OK response flow.
   </figcaption>
 </figure>
+
 ---
 
 ## Layer 4 — Inference Router (llm-d / KServe)
@@ -314,7 +316,6 @@ In practice: KServe is the right answer for general-purpose model serving platfo
     A detailed technical architecture diagram illustrating how llm-d functions as a cluster-aware inference router to optimize Large Language Model (LLM) serving.
   </figcaption>
 </figure>
-
 
 ---
 
