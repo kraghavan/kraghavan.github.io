@@ -12,6 +12,8 @@ Serving an LLM at scale is categorically different from serving a stateless REST
 
 This is the architecture that gets it close to production grade. We'll cover each layer — what it does, why it exists, and what a real config looks like. If you want to understand what's actually happening inside the GPU once a request lands, I'd start with my [deep inference walkthrough](https://kraghavan.ca/llm-infrastructure/inference/2026/04/14/re-introduction-to-inference.html) first. This post picks up where that one ends.
 
+One deliberate scope boundary worth stating upfront: this article covers the serving infrastructure — the layers between your user and your GPU. The application layer above it, including retrieval pipelines, vector databases, MCP tool integration, and orchestration frameworks, is a separate concern and not covered here. Those components plug in above Layer 3, but how they do so is its own topic.
+
 ---
 
 ## Why You Can't Just Load-Balance an LLM
