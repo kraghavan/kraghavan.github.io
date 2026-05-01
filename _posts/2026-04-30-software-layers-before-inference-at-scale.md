@@ -216,6 +216,8 @@ litellm_settings:
 
 Semantic caching is worth enabling from day one. For any workload with repeated questions — knowledge base Q&A, customer support, internal tooling — cache hit rates of 30–40% are realistic. That's 30–40% of inference traffic returning zero GPU compute. Enable it, set a sensible TTL for your workload, and check the hit rate in Grafana after your first week of real traffic.
 
+One thing worth understanding clearly: L3 is the only layer in this entire stack that can stop a long prompt from traveling all the way to the GPU. Every other layer — NGINX, Kong, llm-d — reads the full request body, makes a decision, and forwards it wholesale. llm-d's KV cache routing is often misread as meaning the prompt doesn't travel to vLLM; it does, every time. What llm-d skips is the *compute* on the cached prefix, not the transmission of the prompt itself. The only genuine short-circuit is a semantic cache hit at L3, where LiteLLM returns the stored response from Redis and the prompt goes no further. For workloads with long system prompts — 4k, 32k, 128k tokens — this distinction has real implications for both latency and memory pressure across the stack. A cache miss on a 128k-token prompt means roughly 500KB of JSON moving through every layer, held in memory at each hop, before a single token is generated.
+
 Provider API keys belong in a secrets manager, not in this config file. A leaked LiteLLM config that contains API keys in plaintext is an expensive incident.
 
 **Scalability:** Run multiple LiteLLM instances behind a load balancer, all sharing a Redis cache. Fallback chains mean no single provider outage takes down your service.
