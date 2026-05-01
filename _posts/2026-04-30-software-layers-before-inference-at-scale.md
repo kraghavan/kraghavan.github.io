@@ -104,9 +104,9 @@ server {
 **Reliability:** Health checks against all upstreams with automatic failover. If L3 goes down, NGINX returns a clean 502 rather than letting connections hang until they timeout.
 
 <figure style="max-width:900px;margin:2rem auto;text-align:center;">
-  <img src="/assets/images/llm-inference/nginx-unified-platform.png" alt="llm-d vs legacy NGINX routing — showing prefix-cache-aware routing, P/D disaggregation, tiered KV cache, and SLO-aware autoscaling" style="width:100%;">
+  <img src="/assets/images/llm-inference/nginx-unified-platform.png" alt="NGINX as a unified platform gateway routing HTTPS traffic to three upstreams: App Backend with WAF, Auth Service with rate limiting, and LLM Gateway with SSE streaming configuration" style="width:100%;">
   <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
-    A technical diagram detailing NGINX as a Unified Platform Gateway, managing inbound HTTPS :443 traffic with TLS termination, and routing requests to three backend services based on API endpoints: the App Backend with WAF / ModSecurity security features (top red path for /api/v1/users); the Auth Service with rate limits (middle yellow path for /api/v1/auth); and the LLM Gateway (L3) with specialized proxy and streaming configurations (bottom blue path for /api/v1/chat).
+    NGINX as a unified platform gateway. A single HTTPS :443 entry point (with TLS termination) fans out to three upstream paths: the App Backend (red path, /api/v1/users) protected by WAF / ModSecurity; the Auth Service (yellow path, /api/v1/auth) with a burst rate limit; and the LLM Gateway at L3 (blue path, /api/v1/chat) carrying streaming-specific annotations — proxy_buffering=off and a 120s read timeout — that are absent from the other two paths. The LLM path is the only one where buffering must be disabled for SSE to work correctly.
   </figcaption>
 </figure>
 
@@ -155,7 +155,7 @@ The ownership model here matters: **platform teams own L2, ML teams own L3.** Pl
 **Reliability:** Circuit breaker per consumer. A runaway batch job from one team hitting quota doesn't degrade other consumers — they're rate-limited independently.
 
 <figure style="max-width:900px;margin:2rem auto;text-align:center;">
-  <img src="/assets/images/llm-inference/kong-api-gateway.png" alt="llm-d vs legacy NGINX routing — showing prefix-cache-aware routing, P/D disaggregation, tiered KV cache, and SLO-aware autoscaling" style="width:100%;">
+  <img src="/assets/images/llm-inference/kong-api-gateway.png" alt="Kong API Gateway managing three consumer tiers — Internal Team A, External Partner B, and Public API — each with independent rate limits enforced through key-auth, rate-limiting, and http-log plugins before forwarding to LiteLLM" style="width:100%;">
   <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
     A technical architecture diagram showing the Kong API Gateway as a traffic management layer. On the left, traffic from NGINX feeds into the gateway. At the top of Kong, three consumer identities are defined: 'Internal Team A' with a 500 req/min limit, 'External Partner B' with 100 req/min, and 'Public API Tier' with 20 req/min. Inside the Kong gateway block, requests pass sequentially through three stacked plugin boxes labeled 'key-auth', 'rate-limiting (per consumer)', and 'http-log (audit trail)', which are highlighted with teal accents. Finally, processed requests flow out of Kong via a single outbound arrow to LiteLLM (L3) on the right. The diagram uses a clean flowchart style with a muted color scheme against a grey background.
   </figcaption>
@@ -173,6 +173,9 @@ For teams that need to go further — classifying prompts by data sensitivity, e
 
 ```yaml
 # litellm config.yaml
+# Illustrative — verify field names and routing strategy values against
+# your installed LiteLLM version before deploying
+# Docs: https://docs.litellm.ai/docs/routing
 model_list:
   # Primary: internal vLLM cluster (routed through llm-d at L4)
   - model_name: gpt-4o
@@ -222,9 +225,9 @@ Provider API keys belong in a secrets manager, not in this config file. A leaked
 **Reliability:** Automatic failover to fallback providers with configurable retry. Health checks per backend. If your internal cluster is unhealthy, traffic shifts to cloud automatically without any application change.
 
 <figure style="max-width:900px;margin:2rem auto;text-align:center;">
-  <img src="/assets/images/llm-inference/llmlite.png" alt="llm-d vs legacy NGINX routing — showing prefix-cache-aware routing, P/D disaggregation, tiered KV cache, and SLO-aware autoscaling" style="width:100%;">
+  <img src="/assets/images/llm-inference/llmlite.png" alt="LiteLLM smart routing layer showing a least-busy router distributing requests across Internal vLLM primary, Anthropic Claude fallback, and OpenAI emergency fallback, with a Redis cache bypass path that returns cached responses without touching the GPU" style="width:100%;">
   <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
-    This diagram provides a technical schematic of the LiteLLM Smart Routing and Caching Architecture. It illustrates how the LiteLLM API Gateway manages inbound chat completion requests from a Kong proxy. The gateway utilizes a Dynamic Router with a least-busy strategy to distribute traffic across Primary, Fallback, and Emergency backends (private GPU clusters, Anthropic Claude API, and OpenAI GPT-4o API, respectively). Simultaneously, it utilizes an integrated Redis Distributed Cache for immediate response on cache hits, explicitly highlighting a 'zero GPU' computation path for repeat queries. The system ensures a reliable HTTP 200 OK response flow.
+    LiteLLM as a smart routing and caching layer. A single /v1/chat/completions request enters from the left (via Kong). Inside LiteLLM, two components are shown: a Router applying a least-busy strategy, and a Redis Cache that short-circuits the request on a hit — returning immediately with zero GPU compute. On a cache miss, the Router forwards to one of three backends in priority order: the internal vLLM cluster via llm-d (primary), Anthropic Claude (fallback), and OpenAI GPT-4o (emergency fallback). The cache-hit bypass arrow is the key visual — it shows the path where no inference work is done at all.
   </figcaption>
 </figure>
 
@@ -311,9 +314,9 @@ In practice: KServe is the right answer for general-purpose model serving platfo
 
 
 <figure style="max-width:900px;margin:2rem auto;text-align:center;">
-  <img src="/assets/images/llm-inference/llm-d.png" alt="llm-d vs legacy NGINX routing — showing prefix-cache-aware routing, P/D disaggregation, tiered KV cache, and SLO-aware autoscaling" style="width:100%;">
+  <img src="/assets/images/llm-inference/llm-d.png" alt="llm-d as a cluster-aware inference router showing a KV Cache Registry table driving routing decisions, with separate Prefill Pool (4x H100) and Decode Pool (8x A10G) and a KV state transfer arrow between them" style="width:100%;">
   <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
-    A detailed technical architecture diagram illustrating how llm-d functions as a cluster-aware inference router to optimize Large Language Model (LLM) serving.
+    llm-d as a cluster-aware inference router. Requests arrive from LiteLLM on the left. Inside llm-d, a KV Cache Registry table tracks each replica by pod name, cached prefix hash, block count, and queue depth. A routing decision diamond reads from that table: if a prefix match exists, the request is sent to the specific replica holding the warm cache — skipping full prefill; if no match, it routes to any available replica. On the right, two distinct GPU pools handle separated workloads: the Prefill Pool (4x H100, compute-optimized) and the Decode Pool (8x A10G, memory-optimized), connected by a KV state transfer arrow showing how computed KV blocks move from prefill to decode once the input phase completes.
   </figcaption>
 </figure>
 
@@ -406,9 +409,9 @@ The tradeoff with TP is that every decode step requires an all-reduce across all
 **Reliability:** KV cache eviction prevents OOM at the cost of latency spikes for the evicted requests — which is the right tradeoff. `/health` endpoint for readiness and liveness probes. Graceful shutdown drains in-flight requests before terminating.
 
 <figure style="max-width:900px;margin:2rem auto;text-align:center;">
-  <img src="/assets/images/llm-inference/vllm-gpu-worker.png" alt="llm-d vs legacy NGINX routing — showing prefix-cache-aware routing, P/D disaggregation, tiered KV cache, and SLO-aware autoscaling" style="width:100%;">
+  <img src="/assets/images/llm-inference/vllm-gpu-worker.png" alt="vLLM GPU worker cutaway showing the left-to-right flow from Tokenizer through Scheduler, Prefill (compute-bound), KV Cache block grid, Decode Loop (memory-bound), and Detokenizer, with TTFT and ITL annotations and a Prometheus metrics sidebar" style="width:100%;">
   <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
-    A diagrammatic flow explaining how the TTFT and ITL is calculated, when a vLLM worker starts processing a prompt. List of important metrics to be tracked and shipped into observability space is also specified. 
+    A cutaway view of a vLLM GPU worker, left to right. An HTTP request enters a CPU-side Tokenizer, passes through the Scheduler, then enters the GPU section (orange border) where two distinct phases run: Prefill (compute-bound, processes all input tokens in parallel) feeds into a KV Cache block grid — shown as a partially filled matrix of allocated and free blocks — which in turn feeds the Decode Loop (memory-bound, generates one token per step). Output tokens pass back through a CPU-side Detokenizer and stream to the client. TTFT is annotated as the span from request arrival to the first decoded token. ITL is annotated as the interval between consecutive decoded tokens. A sidebar lists the key Prometheus metrics exported by this worker — the same signals llm-d reads to make scheduling decisions. For tensor-parallel deployments (TP=4), NCCL all-reduce operations synchronize GPU shards after each layer inside the GPU section.
   </figcaption>
 </figure>
 
@@ -523,9 +526,9 @@ The system prompt's KV cache being warm on R2 saved ~400ms of prefill.
 ```
 
 <figure style="max-width:900px;margin:2rem auto;text-align:center;">
-  <img src="/assets/images/llm-inference/serving-request.png" alt="llm-d vs legacy NGINX routing — showing prefix-cache-aware routing, P/D disaggregation, tiered KV cache, and SLO-aware autoscaling" style="width:100%;">
+  <img src="/assets/images/llm-inference/serving-request.png" alt="UML sequence diagram showing a single LLM request flowing through Client, NGINX, Kong, LiteLLM, llm-d, and vLLM R2, with a KV cache hit annotation on the llm-d routing step and streaming token responses returning through the same chain" style="width:100%;">
   <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">
-    Sequence of how the LLM serves a request and responces are generated. 
+    End-to-end sequence for a single POST /v1/chat/completions request carrying a 4096-token system prompt and a 200-token user turn. The request moves left to right through seven participants: Client → NGINX (TLS termination) → Kong (API key validation, trace ID stamped) → LiteLLM (cache miss, routes to internal cluster) → llm-d (KV cache registry hit — replica R2 already holds the system prompt prefix) → vLLM R2 (prefill runs on the 200 new tokens only; 4096 prefix tokens skipped) → GPU. The note on the llm-d → vLLM R2 arrow calls out the cache hit explicitly. Token responses stream back through the same chain as repeated return arrows, reflecting SSE delivery. Kong records the token count against the consumer quota on the return path.
   </figcaption>
 </figure>
 
@@ -547,9 +550,13 @@ The principal engineer's test for each layer you add: if I removed this tomorrow
 
 ## Closing
 
-None of this is over-engineering. Each layer exists because something specific breaks without it. NGINX without `proxy_buffering off` breaks streaming silently. LiteLLM without a fallback chain means a provider outage is your outage. llm-d without KV cache routing means you're paying GPU costs for work that's already been done on another pod.
+None of this is over-engineering. Each layer exists because something specific breaks without it. NGINX without `proxy_buffering off` breaks streaming silently. A proxy without a fallback chain means a provider outage is your outage. llm-d without KV cache routing means you're paying GPU costs for work that's already been done on another pod.
 
 Start with `NGINX → LiteLLM → vLLM`. That's a real production stack that serves real traffic well. Add layers as the specific pressure they solve becomes concrete — not before. The stack I've laid out here is the shape of where you'll end up as scale and compliance requirements grow.
+
+The five layers above exist because the tools your team already knows — NGINX, Kong, Kubernetes — were built for networking problems. LLM serving is a scheduling problem wearing networking clothes, and each layer is one part of that disguise being pulled off.
+
+The specific tools here — especially at L4 — will change faster than any other layer in this stack. llm-d is pre-v1 and the operator API is still settling. The shape of the stack won't change. The components will.
 
 The GPU is the expensive part. Everything above it exists to make sure that GPU spends its cycles on inference — not on routing errors, redundant compute, or requests that should have been served from cache.
 
