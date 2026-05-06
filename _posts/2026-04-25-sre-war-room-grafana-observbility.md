@@ -14,7 +14,9 @@ toc_icon: "fire"
 
 On April 21, 2026, Grafana Labs quietly dropped a blog post: *AI Observability for Agents in Grafana Cloud*. I read it, got excited, and spent the next few days building something to put it through its paces. By April 25th I had five Claude agents handling fake production incidents — a P1 Redis split-brain, a DDoS on the CDN, a Postgres connection pool exhausted at 512/512 — and Grafana was watching every single token.
 
-This is the story of that experiment. The plan, the setup, the instrumentation, the dashboard, and the parts that were genuinely painful. I'll be honest about all of it.
+The hypothesis: if you instrument a multi-agent system properly, you can observe it the same way you observe infrastructure. Conversations become traces. Token costs become metrics. Agent quality becomes an SLO.
+
+This is the story of testing that hypothesis. The build, the dashboard, the moment it looked like it worked, the moment I realised it hadn't — and what the gap reveals about where AI agent systems actually break. I'll be honest about all of it.
 
 ---
 
@@ -187,6 +189,10 @@ The output is pointed:
 
 The cost-cop is Haiku auditing Sonnet. A cheap model correctly identifying that expensive models are doing work they're overqualified for. That's the FinOps signal that used to require a dedicated billing dashboard. Now it's a Grafana conversation.
 
+At this point in the experiment, everything was working. Telemetry flowing. Dashboard populated. Costs tracked. Agents completing pipelines. The hypothesis looked confirmed.
+
+Then I looked at whether the agents were actually *right*.
+
 ---
 
 ## When the System Was Confidently Wrong
@@ -201,7 +207,10 @@ Here's the problem: a real JWT rotation failure requires coordinating across eve
 
 **This is the failure mode that matters.** Not malformed JSON. Not truncated responses. An agent that's confidently correct at the individual step level but wrong at the system level, producing documentation that would mislead an on-call engineer.
 
-The fix isn't prompt engineering. It's architecture: the runbook-agent needs a dependency graph, not a keyword-match against a static runbook library.
+> **This is not a prompt problem. It's a systems problem.**
+> Static runbooks fail because systems aren't static.
+
+The fix is architecture: the runbook-agent needs a dependency graph, not a keyword-match against a flat library of procedures.
 
 What that graph looks like matters. A static service map (hardcoded in config) would have caught the JWT case — auth-service depends on api-gateway depends on mobile-bff, so any auth rotation plan must include key propagation across all three. A runtime-derived graph (built from OTel traces) would be more accurate but adds infrastructure complexity. A config-derived graph sitting in the platform layer is probably the right starting point: owned by the platform team, consumed by the runbook-agent as context injected into the prompt alongside the runbook data.
 
@@ -393,7 +402,15 @@ But here is where it breaks specifically.
 
 **Evaluation is the hardest part, and I skipped it.** I listed LLM-as-judge evaluation as Phase 4 because it requires defining what a good triage or good post-mortem actually looks like — a rubric problem that's harder than the instrumentation problem. The dashboard has an Evaluation tab. It's empty. That's not Grafana's failure. It's mine.
 
-As an SRE building toward LLM infrastructure roles, this experiment confirms the intersection I care about: SRE rigour applied to LLM systems. The tooling is here. The mental models transfer. The failure modes are real — and the next post will be about those.
+As an SRE building toward LLM infrastructure roles, this experiment confirms the intersection I care about: SRE rigour applied to LLM systems. The tooling is here. The mental models transfer. The failure modes are real.
+
+But here's the shift in framing that matters most:
+
+**We don't have an observability problem for agents anymore. We have a correctness problem — and we finally have the tools to see it.**
+
+The next question isn't "can we observe what our agents are doing?" It's "now that we can see it clearly, what do we do about it?" That's a harder problem. It's also a more honest one.
+
+That's the next post.
 
 ---
 
