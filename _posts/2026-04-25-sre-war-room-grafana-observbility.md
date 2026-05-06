@@ -310,8 +310,16 @@ The AI Assistant panel on the right is a nice touch — it analyses your agent t
 The tabs — Analytics, Agents, Conversations, Tools, Evaluation — cover every dimension of LLM observability:
 - **Conversations**: the thread view, for debugging individual incidents
 - **Agents**: the fleet view, for understanding workload distribution
-- **Analytics**: the metrics view, for SLO and cost tracking
+- **Analytics**: the metrics view, for SLO and cost tracking — sparse in this setup for reasons explained below
 - **Evaluation**: the quality view, for LLM-as-judge scoring (Phase 4 for this project)
+
+> **Why the Analytics tab is sparse in this setup**
+>
+> If you open Analytics and see mostly empty panels — that's expected here, and worth explaining. The Analytics tab is powered by Prometheus-compatible metrics. This project instruments exclusively via the Sigil SDK's HTTP exporter, which ships conversation telemetry directly to Grafana's Sigil ingestion endpoint. There is no Prometheus scrape pipeline in play — we didn't use Prometheus at all. The instrumentation path is: agent code → Sigil SDK → HTTP exporter → `sigil-prod-ca-east-0.grafana.net`. That path doesn't feed the Prometheus data model that Analytics queries against.
+>
+> What this means practically: token usage aggregates, latency histograms, and cost-over-time charts won't populate from this setup. The **Conversations tab carries everything meaningful** — per-agent timing, call counts, model attribution, and the full prompt/response content. For the goal of this experiment (debugging agent behaviour across incident pipelines), Conversations is the right surface anyway.
+>
+> Wiring Sigil telemetry into a Prometheus-compatible sink to fully populate Analytics is a Phase 4 item, alongside LLM-as-judge evaluation. It would require either a recording rule layer or a custom exporter that bridges Sigil's generation data into the Prometheus data model — doable, but out of scope for a four-day experiment on a brand-new SDK.
 
 ---
 
