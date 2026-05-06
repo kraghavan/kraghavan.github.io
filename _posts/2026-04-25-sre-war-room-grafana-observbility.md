@@ -421,7 +421,6 @@ That's the next post.
 - [Grafana Sigil SDK (GitHub)](https://github.com/grafana/sigil-sdk)
 - [LangGraph Docs](https://langchain-ai.github.io/langgraph/)
 - [Anthropic Claude API](https://docs.anthropic.com)
-- Project code: *sre-war-room* (GitHub — link coming)
 
 ---
 
