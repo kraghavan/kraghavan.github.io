@@ -237,7 +237,7 @@ After trying:
 The answer was buried in `Administration → Plugins → AI Observability → Connection tab`.
 
 ![AI Observability plugin configuration page showing sigil-prod-ca-east-0.grafana.net endpoint](/assets/images/sre-war-room/plugin-config.png)
-*The actual endpoint: sigil-prod-ca-east-0.grafana.net. Instance ID: 1608023. Not documented. Found by clicking through the plugin Configuration tab.*
+*The actual endpoint: sigil-prod-ca-east-0.grafana.net. Not documented. Found by clicking through the plugin Configuration tab.*
 
 **The correct endpoint:** `https://sigil-prod-ca-east-0.grafana.net`  
 **The correct auth:** Basic auth with Instance ID as username + Cloud Access Policy token as password  
