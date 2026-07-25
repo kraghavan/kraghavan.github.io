@@ -1,0 +1,14 @@
+---
+# Only this file needs front matter (the dashes are enough)
+---
+
+@charset "utf-8";
+
+@import "minimal-mistakes/skins/{{ site.minimal_mistakes_skin | default: 'default' }}"; // skin
+@import "minimal-mistakes"; // main partials
+
+/* Hide the theme's auto-generated "Recent Posts" archive subtitle on the
+   home page -- the page title (<h1>) above it already says the same thing. */
+.layout--home .archive__subtitle {
+  display: none;
+}

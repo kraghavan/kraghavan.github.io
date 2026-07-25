@@ -5,9 +5,7 @@ permalink: /about/
 author_profile: true
 ---
 
-# Hey, I'm Karthika 👋
-
-I'm a Software Engineer who has spent a decade convincing distributed systems to behave. Sometimes they dont listen.
+Hey, I'm Karthika 👋 — a Software Engineer who has spent a decade convincing distributed systems to behave. Sometimes they dont listen.
 
 My specialty is the infrastructure nobody sees until it breaks: Kafka pipelines that handle 100K events/sec, EKS migrations that don't page you at 3am, DNS control planes that actually control things (definitely not designing this website) 
 
@@ -31,7 +29,7 @@ I run **AI Assembly**, a women-in-tech community (via whatsapp, into slack in fu
 
 ## Get in touch
 
-I'm based in Vancouver, BC — open to remote and hybrid roles in platform engineering, ML infrastructure, or anything where I get to make systems reliable at scale. If you're building interesting infrastructure, I'd love to chat.
+I'm based in Vancouver, BC — building my stuff in platform engineering, ML infrastructure, or anything where I get to make systems reliable at scale. If you're building interesting infrastructure, I'd love to chat.
 
 - **GitHub**: [github.com/kraghavan](https://github.com/kraghavan)
 - **LinkedIn**: [linkedin.com/in/karthikaraghavan](https://linkedin.com/in/karthikaraghavan)
