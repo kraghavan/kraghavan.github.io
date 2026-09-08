@@ -18,21 +18,29 @@ excerpt: >
   optimisations we built on top of that assumption stop working.
 ---
 
-Every post in this series so far has been an experiment. I stood something up, pointed Locust at it, and reported what Grafana showed — including [the run where NIXL showed "No Data" on every KV transfer metric](/llm-infrastructure/inference/2026/04/21/llm-d-pd-disaggregation.html) and the architecture collapsed back into aggregated serving.
+## The premise that broke
 
-This post is a landscape post, and I want to be explicit about that because the rest of the series has trained you to expect numbers I generated myself.
+We normally treat prefill as compute-bound and decode as memory-bandwidth-bound. That split is the foundation under three separate pieces of inference infrastructure: P/D disaggregation routes prefill and decode to different hardware because they assume different resource profiles; token-budget scheduling treats new tokens as a proxy for resource consumption; hardware specialisation puts prefill on compute-dense parts because prefill is supposed to need compute.
 
-- **Measured by me:** only the results already published in parts 4 and 5 — an 81.3% prefix cache hit rate, and the aggregated-vs-broken-P/D comparison of 15ms vs 54.9ms TTFT and 260ms vs 1,690ms E2E p50. Small model, single GPU. Reused as an anchor, not presented as new work.
-- **Published by others:** everything else, linked, with the provenance stated where a source is a preprint, a vendor blog, or a single secondary report.
-- **Mine:** the predictions in the second-to-last section, labelled with confidence and reasoning so you can argue with the reasoning rather than the conclusion.
-
-The through-line is not "the KV cache is big." It is narrower and more useful:
+Prefix caching breaks the premise underneath all three. As cache reuse rises, prefill does less computation while still having to load the cached KV. Past a certain point, prefill crosses the same memory-bandwidth boundary decode already lives on. Stated precisely:
 
 > **Once enough of your prefill is loading cached KV rather than computing it, prefill stops being compute-bound — and P/D disaggregation, token-budget scheduling, and hardware specialisation were all built on the assumption that it is.**
 
 That claim is not mine. It comes from Meng, Lee and Wang's [*Understanding Bottlenecks for Efficiently Serving LLM Inference with KV Offloading*](https://arxiv.org/abs/2601.19910) (arXiv 2601.19910v1, 16 Dec 2025 — a preprint in MLSys submission format, not peer-reviewed at time of writing). I read it in full for this post, and it reframed the whole thing. Most of the analytical spine below is theirs; I have tried to be scrupulous about which parts.
 
 The organising split I use in the middle section — Transformer-preserving versus Transformer-replacing — is [Devansh's framing](https://machine-learning-made-simple.medium.com/transformers-vs-mamba-vs-linear-attention-who-wins-long-context-f1dc8ceb5ede), not mine. Credit where it's due; it's the clearest way I've seen to organise a messy field.
+
+There's a broader systems principle underneath the specific claim: when an optimisation removes work from one resource while leaving another resource intact, it can invalidate the abstractions built around the original bottleneck. Prefix caching does exactly that to prefill. The practical consequence is that tokens stop being a sufficient unit of account — a scheduler increasingly needs to reason about resident KV, transfer bytes, and available bandwidth, not just how many tokens it's processing.
+
+---
+
+Every post in this series so far has been an experiment. I stood something up, pointed Locust at it, and reported what Grafana showed — including [the run where NIXL showed "No Data" on every KV transfer metric](/llm-infrastructure/inference/2026/04/21/llm-d-pd-disaggregation.html) and the architecture collapsed back into aggregated serving.
+
+This one is a landscape post, and I want to be explicit about that because the rest of the series has trained you to expect numbers I generated myself.
+
+- **Measured by me:** only the results already published in parts 4 and 5 — an 81.3% prefix cache hit rate, and the aggregated-vs-broken-P/D comparison of 15ms vs 54.9ms TTFT and 260ms vs 1,690ms E2E p50. Small model, single GPU. Reused as an anchor, not presented as new work.
+- **Published by others:** everything else, linked, with the provenance stated where a source is a preprint, a vendor blog, or a single secondary report.
+- **Mine:** the predictions in the second-to-last section, labelled with confidence and reasoning so you can argue with the reasoning rather than the conclusion.
 
 ---
 
@@ -45,15 +53,17 @@ The organising split I use in the middle section — Transformer-preserving vers
 - **κ_crit** — the ratio at which prefill flips from compute-bound to memory-bound. A property of the model and the hardware.
 - **TTFT / ITL** — the metrics I've been reporting since part 2.
 
-κ_ratio and κ_crit are Meng et al.'s formulation. The rest of this post leans on them heavily, because once you have those two numbers the rest of the field organises itself.
+κ_ratio and κ_crit are Meng et al.'s formulation. The rest of this post leans on them heavily, because once you have those two numbers the rest of the field organises itself. Their derivation (Eq. 6): with K cached tokens and T new tokens, prefill goes memory-bound once K/T exceeds
+
+> κ_crit = κ_M × κ_HW = (F_pf / B_kv) × (BW_PCIe / C_eff)
+
+— a model factor (FLOPs per prefill token, over bytes of KV cache per token) times a hardware factor (sustained PCIe bandwidth, over effective GPU FLOPs/s). It's a roofline ridge point: the side of the equation that's smaller decides whether you're paying for compute or for transfer.
 
 ---
 
 ## Why the Cache Became the Bill
 
-vLLM's own framing is the honest version of the hook I originally wanted to write: for standard full-attention decoders, [the KV cache often dominates GPU memory at 128k+ contexts, and each decode step must read a large fraction of it](https://vllm.ai/blog/2026-04-22-fp8-kvcache).
-
-*(I originally had precise-looking figures here — "70–90% of VRAM at 1M tokens." I couldn't trace them to a primary source, so they're gone. Qualitative and sourced beats precise and unattributable.)*
+For standard full-attention decoders, [the KV cache often dominates GPU memory at 128k+ contexts, and each decode step must read a large fraction of it](https://vllm.ai/blog/2026-04-22-fp8-kvcache).
 
 Two second-order effects matter more than the raw memory number:
 
@@ -125,21 +135,19 @@ The measured numbers, from Meng et al.'s Table 3: **DeepSeek-V3 at 70 KB/token a
 
 That translates directly: DeepSeek-V3's κ_crit is 4.6× higher than Qwen3-235B's, extending the compute-bound region to κ_ratio ≈ 40 versus ≈ 8.
 
-**Two caveats, and I've corrected an earlier overstatement here.** In a draft of this post I wrote that MLA's benefits couldn't be demonstrated because serving implementations weren't mature. That's broader than the source supports. What the paper actually says is narrower: they attempted to evaluate **DeepSeek-V2** and hit implementation-specific overheads that prevented clean isolation of PCIe transfer time. That's a measurement-harness problem in their offloading setup, not a general verdict on MLA in production. The honest takeaway is smaller but still real: benchmark MLA on your own stack rather than assuming paper numbers transfer.
+**Two caveats.** Meng et al. attempted to evaluate **DeepSeek-V2** and hit implementation-specific overheads that prevented clean isolation of PCIe transfer time — a measurement-harness problem in their offloading setup, not a general verdict on MLA in production. The takeaway: benchmark MLA on your own stack rather than assuming paper numbers transfer.
 
 The second caveat is the paper's own conclusion, and it's blunt: MLA delays the memory-bound transition but does not eliminate it. Both DeepSeek-V3 and Qwen3-235B become bandwidth-limited at κ_ratio between 100 and 1,000 — which is where real workloads live.
 
 ### Phase 6 — Quantization (2025–2026)
 
-The one fully post-hoc lever. And this is where I had to throw out my first draft entirely.
-
-I originally published a tidy table giving FP8 a 0.3–0.7 point accuracy cost and INT8 a 1.5–3 point cost. Those numbers came from an SEO blog and I could not trace them to any benchmark. **Cut.** I also claimed FP8 buys 30–50% throughput. Also wrong, by about 3×.
+The one fully post-hoc lever.
 
 Here is what a real benchmark says. The vLLM team (with AWS and Red Hat AI) [published a full FP8 KV-cache validation](https://vllm.ai/blog/2026-04-22-fp8-kvcache) in April 2026 — deliberately using uncalibrated per-tensor scales as a worst case, reproducible with one flag:
 
 **Accuracy.** At most 0.7 points degradation on Qwen3.5-27B reasoning, lowest recovery 99% on AIME25; 1–2 points on Qwen3-30B-A3B-Thinking. On long-context MRCR: 97–98% of baseline AUC at 128k for Llama-3.3-70B, and full recovery of aggregated AUC at 1M context on Qwen3.5-27B.
 
-**Performance, measured under load** — not the number I made up:
+**Performance, measured under load:**
 
 ```
 Model            Median ITL    Output tok/s    Gain
@@ -165,9 +173,7 @@ Read that again. A config flag that looked accuracy-neutral was destroying long-
 
 ### Phase 6b — The cautionary tale: TurboQuant
 
-I nearly published a paragraph hyping [TurboQuant](https://arxiv.org/abs/2504.19874) as 3-bit compression with zero accuracy loss. Almost every part of that was wrong, and correcting it produced a better section than the original.
-
-**What the paper actually claims.** TurboQuant (Zandieh and Mirrokni of Google Research, Daliri of NYU, Hadian of Google DeepMind; arXiv 2504.19874, April 2025) randomly rotates input vectors to induce a concentrated Beta distribution, applies optimal scalar quantizers per coordinate, then corrects the residual with a 1-bit Quantized Johnson-Lindenstrauss transform. Its stated KV result: **absolute quality neutrality at 3.5 bits per channel, marginal degradation at 2.5.** Not 3 bits, not zero-loss. The polar-coordinate mechanism I'd attributed to it belongs to a different paper, [PolarQuant](https://arxiv.org/abs/2502.02617).
+**What the paper actually claims.** TurboQuant (Zandieh and Mirrokni of Google Research, Daliri of NYU, Hadian of Google DeepMind; arXiv 2504.19874, April 2025) randomly rotates input vectors to induce a concentrated Beta distribution, applies optimal scalar quantizers per coordinate, then corrects the residual with a 1-bit Quantized Johnson-Lindenstrauss transform. Its stated KV result: **absolute quality neutrality at 3.5 bits per channel, marginal degradation at 2.5.** Not 3 bits, and not zero-loss as it's sometimes summarized elsewhere. (Worth distinguishing from [PolarQuant](https://arxiv.org/abs/2502.02617), a separate paper that uses a polar-coordinate transform.)
 
 **What independent replication found.** vLLM ran [a comprehensive study across four models from 30B to 200B+](https://vllm.ai/blog/2026-05-11-turboquant) in May 2026. Their conclusion:
 
@@ -234,6 +240,8 @@ It's transfer granularity. vLLM manages KV cache in pages of roughly 20–63 KB 
 
 The supporting numbers make the point sharper. Prior work cited in that paper found transfer sizes must reach **16 MB to saturate** an eight-NIC 400 Gbps setup, and that only megabyte-range transfers achieve 75–80% of theoretical PCIe 5.0 bandwidth. Page-sized I/O leaves most of your interconnect on the floor.
 
+**An aside the paper doesn't make, but that's worth flagging if you operate this.** Bigger chunks aren't free — they're a bandwidth-vs-flexibility trade. vLLM's small pages exist to let the allocator evict, share, and fork KV blocks at fine granularity (that's the whole premise of PagedAttention). Coarsening the transfer unit to LMCache's 256-token chunks trades some of that allocation flexibility for throughput. Worth watching for on workloads with heavy prefix branching, where fine-grained eviction matters as much as raw transfer speed.
+
 This is the same lesson as the FP8 kernel and the TurboQuant dequantization overhead, a third time: **the layer beneath your abstraction determines whether the abstraction pays.**
 
 ### The truncation trap
@@ -273,6 +281,8 @@ And the workloads really are that lopsided. Median κ_ratio: **100 for ShareGPT 
 
 This is the part that connects directly to [pd-ratio-coordinator](https://github.com/kraghavan/pd-ratio-coordinator): autonomously rebalancing prefill and decode replicas can't work correctly while the thing doing the rebalancing is fed accounting that ignores cached-context VRAM.
 
+The abstraction problem underneath all three: today's schedulers expose *tokens* as the unit of resource accounting, on the assumption that token count tracks resource consumption. Cached context breaks that assumption. Compute demand tracks new tokens; memory demand tracks cached-plus-new tokens; and for tiered serving, transfer demand tracks KV bytes moved across tier boundaries. A request with 65k cached and 32 new tokens isn't a "32-token request" from memory's perspective — it's a request that needs 65k tokens of KV state resident regardless of how little new compute it does. Token count needs to become one input to scheduling, not the scheduling abstraction itself.
+
 ---
 
 ## Where This Goes
@@ -288,7 +298,7 @@ Two complications worth stating plainly:
 - NVIDIA reportedly lowered the HBM4 spec from 22 TB/s toward ~20 TB/s after suppliers missed the target.
 - [TrendForce reported on 4 August 2026](https://www.trendforce.com/presscenter/news/20260804-13166.html) that since Q3 2026 NVIDIA has been evaluating alternatives to Rubin Ultra's original 12-Hi HBM4e baseline — 8-Hi HBM4e, 12-Hi HBM4, and 8-Hi HBM4 — with the final specification undetermined. The drivers: DRAM supply staying tight through 2027, and uncertainty in 12-Hi HBM4e validation and yield ramp.
 
-**Attribution correction.** An earlier draft of this post said TrendForce reported an 8-Hi option yielding ~192 GB. TrendForce's release does not state that figure. The 192 GB number is **SemiAnalysis's** characterization of what 8-Hi HBM4 would yield, reported alongside TrendForce's configuration news; separately, The Information reported the lower-memory evaluation with TrendForce corroborating. Two sources, one claim, and I'd merged them.
+**Attribution note.** The ~192 GB figure sometimes attached to this option is **SemiAnalysis's** characterization of what 8-Hi HBM4 would yield, reported alongside TrendForce's configuration news — TrendForce's own release does not state that figure. Separately, The Information reported the lower-memory evaluation with TrendForce corroborating.
 
 The trend line is more striking than any single number. Rubin Ultra's memory spec has walked down from a 4-die 1 TB HBM4E 16-Hi configuration previewed at GTC 2025, through 12-Hi HBM4E, through a cancelled 4-die MCM, to the current 2-die package. Meanwhile TrendForce projects HBM bit shipments growing 50–60% year-over-year in 2027 and *still* falling short of demand.
 
@@ -296,9 +306,9 @@ The trend line is more striking than any single number. Rubin Ultra's memory spe
 
 Architectures and context lengths expand to fill available HBM. Every past capacity increase was absorbed immediately. With the Rubin Ultra signal and DRAM shortage on top, per-token cache efficiency stays a first-order concern through 2028.
 
-### Prediction 2 — faster accelerators make the memory wall *worse*, not better. *(High confidence — and this corrects my own earlier reasoning.)*
+### Prediction 2 — faster accelerators make the memory wall *worse*, not better. *(High confidence.)*
 
-In a draft I argued that rising interconnect bandwidth makes tiering strictly more attractive. Meng et al.'s data says the opposite on the axis that matters: **compute scaling has outpaced interconnect scaling, so newer GPUs are more prone to PCIe bottlenecks.** B200 delivers 2.5× H100's effective compute while PCIe 5.0 gives only 2× PCIe 4.0's bandwidth. The result is B200's hardware factor at 13.5 against H100's 34 — **B200 goes memory-bound at 2.5× lower κ_ratio.**
+It's tempting to assume rising interconnect bandwidth makes tiering strictly more attractive. Meng et al.'s data says the opposite on the axis that matters: **compute scaling has outpaced interconnect scaling, so newer GPUs are more prone to PCIe bottlenecks.** B200 delivers 2.5× H100's effective compute while PCIe 5.0 gives only 2× PCIe 4.0's bandwidth. The result is B200's hardware factor at 13.5 against H100's 34 — **B200 goes memory-bound at 2.5× lower κ_ratio.**
 
 Better interconnects help but don't rescue you. NVLink C2C's 900 GB/s (14× PCIe 5.0) raises κ_crit 5.3× — Qwen3-235B from 7.8 to 41.5, DeepSeek-V3 to 191. Document Q&A's median κ_ratio is 5,000. Still firmly memory-bound.
 
@@ -306,11 +316,11 @@ Their more ambitious proposal is unified CPU-GPU HBM on-package, which would rai
 
 **The vendors appear to agree, and have said so.** TrendForce's read on the Rubin Ultra situation is that NVIDIA's primary objective for that generation is **increasing I/O speed, with expanding GPU shipment volume as a secondary priority** — and that if the HBM spec is cut, it'll be done by reducing stack layers. If HBM4e validates on schedule, I/O rises from Rubin's 8–11.7 Gbps to 14–16 Gbps; on HBM4 alone, 11–12 Gbps.
 
-That's a vendor explicitly trading capacity for bandwidth. It's better evidence for this prediction than the capacity-regression framing I originally built the section on, because it isn't an inference from a supply constraint — it's a stated design priority.
+That's a vendor explicitly trading capacity for bandwidth — a stated design priority, not an inference from a supply constraint, which makes it stronger evidence for this prediction than the supply-side framing alone.
 
-### Prediction 3 — FP8 is the floor for a while; sub-4-bit stays niche. *(Medium-high confidence, revised down.)*
+### Prediction 3 — FP8 is the floor for a while; sub-4-bit stays niche. *(Medium-high confidence.)*
 
-I previously predicted 4-bit becoming default the way FP8 did. The vLLM TurboQuant study makes me less confident. The decisive factor isn't bit-width, it's whether the format is **hardware-native in the attention computation**. FP8 wins because Tensor Cores compute in it. Any scheme that dequantizes to BF16 before computing pays an overhead that grows with batch size.
+The vLLM TurboQuant study is the reason for the caveat here: the decisive factor isn't bit-width, it's whether the format is **hardware-native in the attention computation**. FP8 wins because Tensor Cores compute in it. Any scheme that dequantizes to BF16 before computing pays an overhead that grows with batch size.
 
 So: 4-bit becomes default *if and when* it becomes a native compute format (NVFP4 is a plausible path), and not before. Storage-only compression will keep losing on throughput regardless of how good the distortion bounds are.
 
@@ -320,13 +330,11 @@ A small number of attention layers recovers most of the SSM quality gap, and vLL
 
 **Falsifier:** a pure-SSM model matching Transformer multi-needle retrieval at 128k+. I don't expect it; if it happens I'm wrong rather than early.
 
-### Prediction 5 — this is where the leverage is, and it isn't my idea
-
-I want to be careful here, because in an earlier draft I presented this as my own insight and it isn't.
+### Prediction 5 — this is where the leverage is
 
 Meng et al. propose it directly: route by κ_ratio, sending high-κ_ratio requests to high-bandwidth hardware and compute-intensive prefill to cheaper compute-dense parts; power-cap high-κ_ratio servers to 200–300W since PCIe rather than compute limits them; replace FIFO token accounting with utilisation-aware scheduling that co-schedules complementary requests, with aging credits and admission control for fairness.
 
-**My contribution is narrower and I'll state it as such.** I have measured data from the *other* side of this boundary. Part 4's 81.3% prefix hit rate is precisely the mechanism that drives κ_ratio up — successful reuse shrinks T. Part 5 is what happens when the transfer path required by that regime doesn't physically exist. The EPP was doing a primitive version of κ_ratio-aware routing without calling it that, and it worked.
+**My contribution is narrower.** I have measured data from the *other* side of this boundary. Part 4's 81.3% prefix hit rate is precisely the mechanism that drives κ_ratio up — successful reuse shrinks T. Part 5 is what happens when the transfer path required by that regime doesn't physically exist. The EPP was doing a primitive version of κ_ratio-aware routing without calling it that, and it worked.
 
 What I'd want to instrument next isn't whether KV transfer happens, but **what it costs, which tier it came from, and whether the scheduler was charged correctly for it.** That's the gap between their analytical framework and a running system, and it's where a routing gateway earns its keep.
 
@@ -380,31 +388,18 @@ That's a smaller experiment than a two-node RDMA build, and it would tell me mor
 
 ---
 
-## Sources and Corrections
-
-This post went through a verification pass that killed several claims from its first draft. Recording that, because the corrections are more useful than the original text.
-
-**Corrected:**
-- An FP8-vs-INT8 accuracy table sourced from an SEO blog — **removed**. No traceable benchmark. The INT8 comparison has no credible KV-cache-specific source I could find.
-- "FP8 gives 30–50% throughput" — **wrong by ~3×**. Measured: 14.9% (Llama-3.1-8B) and 4.8% (gpt-oss-20b).
-- "70–90% of VRAM at 1M tokens" — **removed**, untraceable.
-- TurboQuant as "3-bit, zero accuracy loss, polar transformation, ICLR 2026" — **wrong on nearly every detail**. Paper claims neutrality at 3.5 bits; the mechanism is random rotation plus a 1-bit QJL residual; polar transformation is PolarQuant, a different paper; the venue claim came from an unofficial PyPI clone. Independent vLLM replication found the aggressive variants drop up to 20 points.
-- "MLA benefits can't be demonstrated because serving implementations are immature" — **overstated**. Source says they hit implementation-specific overheads evaluating DeepSeek-V2 that prevented clean PCIe isolation.
-- "Rising bandwidth makes tiering more attractive" — **reversed**. Compute is outpacing interconnect; newer GPUs go memory-bound sooner.
-- Prediction 5 — **reattributed** to Meng, Lee & Wang, who proposed κ_ratio-aware routing and utilisation-aware scheduling.
-- The preserving/replacing framing — **credited** to Devansh.
-- "TrendForce reported ~192 GB for Rubin Ultra" — **misattributed**. TrendForce reported the four-configuration evaluation and the supply drivers; the 192 GB figure is SemiAnalysis's characterization of 8-Hi HBM4.
+## Sources
 
 **Primary sources read in full:** Meng, Lee & Wang, arXiv 2601.19910v1 (preprint, MLSys submission format, 16 Dec 2025); LMCache, arXiv 2510.09665v2 (Liu, Yao, Cheng et al., Tensormesh + UChicago, 5 Dec 2025); the vLLM FP8 KV-cache post (Apr 2026); the vLLM TurboQuant study (May 2026); TrendForce press release 20260804-13166.
 
 **Read as abstract only:** TurboQuant (arXiv 2504.19874), PolarQuant (arXiv 2502.02617), Mamba (arXiv 2312.00752), PagedAttention (arXiv 2309.06180).
 
-**Every substantive claim in this post now traces to a source you can open.** Where a number comes from a preprint, a vendor blog, or a single analyst firm, I've said so inline. Where I could not trace something, it was removed rather than hedged.
+**Every substantive claim in this post traces to a source you can open.** Where a number comes from a preprint, a vendor blog, or a single analyst firm, that's stated inline.
 
 **My own measurements:** the 81.3% prefix hit rate and the TTFT/ITL/E2E figures, from parts 4 and 5, on a Lambda Labs GH200 with Qwen3-0.6B. Small model, single GPU — don't generalise them to production topologies.
 
 ---
 
-*No new experiments in this one — a landscape post built on the measurements from parts 4 and 5, with a verification pass that reshaped it. Platform engineer with 11+ years in distributed systems going deep on LLM serving infrastructure.*
+*No new experiments in this one — a landscape post built on the measurements from parts 4 and 5. Platform engineer with 11+ years in distributed systems going deep on LLM serving infrastructure.*
 
 *[GitHub](https://github.com/kraghavan) · [LinkedIn](https://linkedin.com/in/karthikaraghavan)*
