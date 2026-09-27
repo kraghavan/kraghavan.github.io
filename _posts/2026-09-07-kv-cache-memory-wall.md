@@ -12,7 +12,7 @@ toc_sticky: true
 excerpt: >
   Parts 2 through 5 were experiments — I ran the thing and reported what the
   dashboards said. This one is a landscape post, so I have flagged every number
-  by whether it is measured by me, published by someone else, or my own
+  as one of three things: measured by me, published by someone else, or my own
   extrapolation. The through-line: once enough of your prefill is loading cached
   KV rather than computing it, prefill stops being compute-bound, and most of the
   optimisations we built on top of that assumption stop working.
@@ -20,11 +20,11 @@ excerpt: >
 
 ## The premise that broke
 
-We normally treat prefill as compute-bound and decode as memory-bandwidth-bound. That split is the foundation under three separate pieces of inference infrastructure: P/D disaggregation routes prefill and decode to different hardware because they assume different resource profiles; token-budget scheduling treats new tokens as a proxy for resource consumption; hardware specialisation puts prefill on compute-dense parts because prefill is supposed to need compute.
+We normally treat prefill as compute-bound and decode as memory-bandwidth-bound. That split is the foundation under three separate pieces of inference infrastructure: P/D disaggregation routes prefill and decode to different hardware because they assume different resource profiles; token-budget scheduling treats new tokens as a proxy for resource consumption; hardware specialisation puts prefill on compute-dense parts because prefill needs compute.
 
 Prefix caching breaks the premise underneath all three. As cache reuse rises, prefill does less computation while still having to load the cached KV. Past a certain point, prefill crosses the same memory-bandwidth boundary decode already lives on. Stated precisely:
 
-> **Once enough of your prefill is loading cached KV rather than computing it, prefill stops being compute-bound — and P/D disaggregation, token-budget scheduling, and hardware specialisation were all built on the assumption that it is.**
+> **Once enough of your prefill is loading cached KV rather than computing it, prefill stops being compute-bound — and P/D disaggregation, token-budget scheduling, and hardware specialisation were all built on the assumption that prefill is always compute-bound.**
 
 That claim is not mine. It comes from Meng, Lee and Wang's [*Understanding Bottlenecks for Efficiently Serving LLM Inference with KV Offloading*](https://arxiv.org/abs/2601.19910) (arXiv 2601.19910v1, 16 Dec 2025 — a preprint in MLSys submission format, not peer-reviewed at time of writing). I read it in full for this post, and it reframed the whole thing. Most of the analytical spine below is theirs; I have tried to be scrupulous about which parts.
 
@@ -69,7 +69,7 @@ Two second-order effects matter more than the raw memory number:
 
 **Batch size is memory-gated.** Decode is bandwidth-bound, so throughput comes from batching. Every byte of cache you don't store is a byte spent on more concurrent sequences.
 
-**The cache has to be read every decode step.** Capacity is one constraint; bandwidth is the other. This is why the hardware section later matters in two dimensions.
+**The cache has to be read every decode step.** Capacity is one constraint; bandwidth is the other. This is why the later hardware section matters in two dimensions.
 
 <figure style="max-width:900px;margin:2rem auto;text-align:center;">
   <img src="/assets/images/llm-inference/kappa-ratio-vs-kappa-crit.png" alt="Log-scale chart showing compute-bound and memory-bound regions, with measured kappa_crit thresholds far to the left of real workload kappa_ratio medians" style="width:100%;">
@@ -111,7 +111,7 @@ Contiguous buffers sized for max sequence length. Correct, simple, wasteful.
 
 ### Phase 3 — Head sharing: MQA and GQA (2023–2024)
 
-MQA has all query heads share one K/V head. GQA groups them, giving `n_h/G` savings and a tunable dial between MHA and MQA. GQA is the default in Llama 3, Mistral and Qwen.
+In MQA, all query heads share one K/V head. GQA groups them, giving `n_h/G` savings and a tunable dial between MHA and MQA. GQA is the default in Llama 3, Mistral and Qwen.
 
 **The constraint that matters:** this is a training-time decision. You inherit it; you can't retrofit it. That theme repeats — the cheapest wins are the ones you don't control.
 
@@ -125,7 +125,7 @@ Token repetition is pervasive — multi-turn conversations accumulate context, d
 
 My Locust workload used a 4:1 tenant-session to cold-request ratio with long system prompts, and the EPP held an **81.3% prefix cache hit rate**. Four in five requests skipped most of their prefill.
 
-**Created:** and this is the pivot of the whole post — *prefix caching is what makes prefill memory-bound.* The more successfully you reuse, the smaller T gets, the larger κ_ratio gets, and the further you slide into the regime where you're not computing anything, just moving bytes. Phase 4 is a victim of its own success.
+**Created (and this is the pivot of the whole post):** *prefix caching is what makes prefill memory-bound.* The more successfully you reuse, the smaller T gets, the larger κ_ratio gets, and the further you slide into the regime where you're not computing anything, just moving bytes. Phase 4 is a victim of its own success.
 
 ### Phase 5 — Low-rank compression: MLA (2024–2026)
 
@@ -240,7 +240,7 @@ It's transfer granularity. vLLM manages KV cache in pages of roughly 20–63 KB 
 
 The supporting numbers make the point sharper. Prior work cited in that paper found transfer sizes must reach **16 MB to saturate** an eight-NIC 400 Gbps setup, and that only megabyte-range transfers achieve 75–80% of theoretical PCIe 5.0 bandwidth. Page-sized I/O leaves most of your interconnect on the floor.
 
-**An aside the paper doesn't make, but that's worth flagging if you operate this.** Bigger chunks aren't free — they're a bandwidth-vs-flexibility trade. vLLM's small pages exist to let the allocator evict, share, and fork KV blocks at fine granularity (that's the whole premise of PagedAttention). Coarsening the transfer unit to LMCache's 256-token chunks trades some of that allocation flexibility for throughput. Worth watching for on workloads with heavy prefix branching, where fine-grained eviction matters as much as raw transfer speed.
+**An aside the paper doesn't make, but that's worth flagging if you operate this.** Bigger chunks aren't free — they're a bandwidth-vs-flexibility trade. vLLM's small pages exist to let the allocator evict, share, and fork KV blocks at fine granularity (that's the whole premise of PagedAttention). Coarsening the transfer unit to LMCache's 256-token chunks trades some of that allocation flexibility for throughput. Worth watching on workloads with heavy prefix branching, where fine-grained eviction matters as much as raw transfer speed.
 
 This is the same lesson as the FP8 kernel and the TurboQuant dequantization overhead, a third time: **the layer beneath your abstraction determines whether the abstraction pays.**
 
@@ -250,7 +250,7 @@ One finding from LMCache's production deployments deserves its own heading, beca
 
 Many teams handle over-long inputs with a sliding window — truncate to keep only the most recent tokens. On real traces from one enterprise user, **prefix cache hit ratios dropped from roughly 85% to 45%** under truncation. Truncated inputs no longer match the prefixes of previously cached contexts, so the cache misses.
 
-Sit with that against [part 4](/llm-infrastructure/inference/2026/04/19/llm-d-epp-prefix-cache-results.html). My 81.3% hit rate is in the same range as their pre-truncation 85%. A context-management policy applied one layer up, for entirely sensible reasons — fitting a context window, capping GPU memory — would have halved it, and nothing in the serving stack would have reported a fault. You'd just be paying twice for prefill.
+Sit with that against [part 4](/llm-infrastructure/inference/2026/04/19/llm-d-epp-prefix-cache-results.html). My 81.3% hit rate is in the same range as their pre-truncation 85%. A context-management policy applied one layer up, for entirely sensible reasons — fitting a context window, capping GPU memory — would have nearly halved it, and nothing in the serving stack would have reported a fault. You'd just be paying twice for prefill.
 
 The general form: **anything that dynamically adds or removes tokens from the front or middle of a context invalidates prefix reuse downstream.** If you're building agents, that includes context compaction, message pruning, and rolling summarisation. Append-only contexts cache; edited contexts don't.
 
@@ -298,7 +298,7 @@ Two complications worth stating plainly:
 - NVIDIA reportedly lowered the HBM4 spec from 22 TB/s toward ~20 TB/s after suppliers missed the target.
 - [TrendForce reported on 4 August 2026](https://www.trendforce.com/presscenter/news/20260804-13166.html) that since Q3 2026 NVIDIA has been evaluating alternatives to Rubin Ultra's original 12-Hi HBM4e baseline — 8-Hi HBM4e, 12-Hi HBM4, and 8-Hi HBM4 — with the final specification undetermined. The drivers: DRAM supply staying tight through 2027, and uncertainty in 12-Hi HBM4e validation and yield ramp.
 
-**Attribution note.** The ~192 GB figure sometimes attached to this option is **SemiAnalysis's** characterization of what 8-Hi HBM4 would yield, reported alongside TrendForce's configuration news — TrendForce's own release does not state that figure. Separately, The Information reported the lower-memory evaluation with TrendForce corroborating.
+**Attribution note.** The ~192 GB figure sometimes attached to this option is **SemiAnalysis's** characterisation of what 8-Hi HBM4 would yield, reported alongside TrendForce's configuration news — TrendForce's own release does not state that figure. Separately, The Information reported the lower-memory evaluation with TrendForce corroborating.
 
 The trend line is more striking than any single number. Rubin Ultra's memory spec has walked down from a 4-die 1 TB HBM4E 16-Hi configuration previewed at GTC 2025, through 12-Hi HBM4E, through a cancelled 4-die MCM, to the current 2-die package. Meanwhile TrendForce projects HBM bit shipments growing 50–60% year-over-year in 2027 and *still* falling short of demand.
 
@@ -349,9 +349,9 @@ What I'd want to instrument next isn't whether KV transfer happens, but **what i
 
 **You can't change the model:**
 
-1. **Turn on FP8 KV cache** if your contexts exceed ~7k. Measured: 2× capacity, ≤0.7–2 points accuracy, +14.9% throughput on Llama-3.1-8B under load. Skip sliding-window layers on hybrid models.
+1. **Turn on FP8 KV cache** if your contexts exceed ~7k. Measured: 2× capacity, ≤0.7–2 points accuracy loss, +14.9% throughput on Llama-3.1-8B under load. Skip sliding-window layers on hybrid models.
 2. **Turn on prefix caching** — then understand that succeeding at it pushes you toward the memory-bound regime. Measure hit rate *and* resulting κ_ratio.
-3. **Audit your context-management policy for prefix invalidation.** Sliding-window truncation halved one production deployment's hit rate, 85% → 45%, silently. Compaction, message pruning and rolling summarisation have the same effect. Append-only contexts cache; edited contexts don't.
+3. **Audit your context-management policy for prefix invalidation.** Sliding-window truncation nearly halved one production deployment's hit rate, 85% → 45%, silently. Compaction, message pruning and rolling summarisation have the same effect. Append-only contexts cache; edited contexts don't.
 4. **Compute your κ_crit before deploying offloading.** Use measured sustained bandwidth, not peak. If your workload's κ_ratio exceeds it by 100×, you are buying compute you will not use.
 5. **Verify your interconnect before P/D disaggregation.** Part 5 exists so you don't learn this the way I did.
 
