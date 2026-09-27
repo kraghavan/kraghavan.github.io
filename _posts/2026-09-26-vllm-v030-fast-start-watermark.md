@@ -306,21 +306,10 @@ cross-checked against Lambda's own billing UI for precision; see
 
 ## Experiment 2 — Watermarking
 
-<div class="mermaid">
-sequenceDiagram
-    participant Client
-    participant vLLM as vLLM server (--watermark-config)
-    participant Detector as GumbelWatermarkDetector
-
-    Client->>vLLM: POST /v1/completions, temperature 0.8, return_token_ids=true
-    vLLM->>vLLM: Gumbel-max sample using keyed PRF over prior tokens
-    vLLM-->>Client: text + token_ids
-    Client->>Detector: detect(token_ids)
-    Detector-->>Client: score, p_value, is_watermarked
-
-    Note over Client,vLLM: Control — temperature = 0 (greedy)<br/>watermarking bypassed, warning logged
-    Note over Client,Detector: Control — baseline server, no watermark config<br/>detector should NOT flag this text
-</div>
+<figure style="max-width:900px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-inference/vllm-v030-watermark-sequence.jpeg" alt="Sequence diagram: Client posts to vLLM server with watermark config, vLLM samples via Gumbel-max keyed PRF, returns text and token_ids, Client calls GumbelWatermarkDetector.detect, detector returns score, p_value, is_watermarked. Two control cases shown: temperature=0 bypasses watermarking, and a baseline server with no watermark config should not be flagged" style="width:100%;">
+  <figcaption style="font-size:0.85rem;color:#888;margin-top:0.5rem;">Generate, detect, and two ways to prove it's not a fluke.</figcaption>
+</figure>
 
 This is the one flagged in an earlier draft of this post as "not sure how
 to test" — it turned out to be the cheapest of the three, model-agnostic
