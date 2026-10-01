@@ -300,6 +300,63 @@ effect, not just its bookkeeping.
 
 ---
 
+## Is This Novel? No — And Here's Who Already Did It
+
+Before publishing this, I asked for an honest review of whether any of
+this is actually new. Short answer: no. This is a small, llm-d-shaped
+implementation of a pattern that already exists in production elsewhere,
+and the post should say that plainly instead of letting "I built an
+operator" imply more than it does.
+
+Specifically, checked against the primary sources, not just taken on
+faith:
+
+- **[NVIDIA Dynamo's Planner](https://docs.nvidia.com/dynamo/v1.2.1/components/planner/planner-guide)**
+  already has a `load` scaling mode that reacts to prefill-queue-token
+  and decode-KV-utilization thresholds — structurally the same idea as
+  `AnalysePrefill`/`AnalyseDecode` here. It also already enforces a joint
+  GPU budget across prefill and decode (`max_gpu_budget`, a hard cap on
+  combined replicas) — the exact mechanism Test 3 validated above. Not
+  novel. Confirmed by reading the config reference directly.
+- **[HeteroScale](https://arxiv.org/abs/2508.19559)** (ByteDance,
+  published August 2025) runs a single joint autoscaling metric across
+  prefill/decode pools in production on tens of thousands of GPUs. The
+  entire "pools compete for GPUs, scale them together" framing of this
+  post is their result at a scale this validation can't touch. Not
+  novel.
+- llm-d's own
+  [autoscaling roadmap](https://github.com/llm-d/llm-d-autoscaling/issues/1079)
+  already lists a "rate-based (velocity) scaling signal" as a planned
+  item. The queue-velocity idea in `AnalysePrefill` isn't an invention,
+  it's llm-d's own stated direction, arrived at independently and about
+  a release early.
+- One genuinely useful finding did fall out of checking Dynamo, though:
+  its docs state the `load` planner mode is **non-functional** on vLLM,
+  SGLang, and TRT-LLM today, because none of those backends expose real
+  prefill queue metrics. That's the same wall Test 2 hit. It means the
+  inconclusive result above isn't a quirk of this 0.6B model on one
+  A100 — it's a structural gap in what current inference engines expose,
+  seen independently by a much bigger team. That's worth more than a
+  clean pass would have been.
+
+What's left standing after all that: the drain-before-scale-down
+mechanism (Test 4) is the one piece I could not find already shipped
+anywhere. I checked llm-d's own autoscaling roadmap and Dynamo's planner
+guide directly for anything about draining a pod or excluding it from
+routing before scale-down — neither mentions it. That doesn't make it
+novel research; it's a small, missing piece of plumbing for one specific
+ecosystem (llm-d), not a new idea. And it's also the one Test 4 couldn't
+actually validate end-to-end, since that requires a real llm-d EPP in
+front of the pods to prove the exclusion works, not just that the label
+gets set correctly.
+
+So: a tiny, real dent, in a very large and already well-populated field.
+If you're evaluating this for your own cluster, evaluate it as "a
+lightweight llm-d-native version of what Dynamo and ByteDance already
+ship at scale," not as a new approach to the problem.
+
+---
+
 ## The Scripts
 
 Everything here — the k8s manifests, the Locust load generator, the setup
