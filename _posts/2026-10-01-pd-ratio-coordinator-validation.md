@@ -27,7 +27,10 @@ unit-tested, never GPU-tested.
 
 This post is what happened when that stopped being true.
 
-<!-- IMAGE SLOT 1: series recap / "unverified tool becomes verified" framing — see docs/gemini-diagram-prompts.md #1 -->
+<figure style="max-width:900px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-infrastructure/pd-ratio-coordinator-verified.jpeg" alt="pd-ratio-coordinator going from ~1,600 lines, unit-tested, never run on a real cluster, to validated on real metrics, real load, real kubectl scale, in this session" style="width:100%;">
+  <figcaption style="font-size:0.9rem;color:#888;">From cited in passing to actually proven.</figcaption>
+</figure>
 
 ---
 
@@ -53,7 +56,10 @@ sequences to finish, *then* scale down — decode pods hold live KV cache,
 so killing one mid-sequence drops a user's request) and cooldown/hysteresis
 to prevent oscillation.
 
-<!-- IMAGE SLOT 2: control loop architecture diagram — see docs/gemini-diagram-prompts.md #2 -->
+<figure style="max-width:900px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-infrastructure/pd-ratio-coordinator-control-loop.jpeg" alt="Control loop: Prometheus scrapes vLLM /metrics every 5s, feeding AnalysePrefill (queue depth + velocity) and AnalyseDecode (TPOT p95 + KV cache %), into ComputeScaleDecision with a gpuBudget constraint, through CooldownGuard.Check, ending in kubectl scale prefill or label draining=true, poll, kubectl scale decode" style="width:100%;">
+  <figcaption style="font-size:0.9rem;color:#888;">Reconcile every 10 seconds.</figcaption>
+</figure>
 
 ---
 
@@ -107,7 +113,10 @@ That means **one GPU is enough.** No NVLink, no combo SKU, no repeating
 Part 5's unresolved problem for a reason that has nothing to do with what
 this tool actually does.
 
-<!-- IMAGE SLOT 3: triage/scope diagram — what needs real P/D vs what doesn't — see docs/gemini-diagram-prompts.md #3 -->
+<figure style="max-width:900px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-infrastructure/pd-ratio-coordinator-scope-triage.jpeg" alt="Scope triage: pd-ratio-coordinator's job is to read Prometheus and call the k8s API. NIXL / cross-GPU KV transfer correctness is not this tool's job (Part 5's unresolved problem, skip it); real metrics + real load + real kubectl scale is this tool's job, testable on one GPU" style="width:100%;">
+  <figcaption style="font-size:0.9rem;color:#888;">One GPU is enough, here's why.</figcaption>
+</figure>
 
 ---
 
@@ -163,7 +172,10 @@ actually debugging it.
 
    Both fixed in `internal/metrics/prometheus.go`, rebuilt, redeployed.
 
-<!-- IMAGE SLOT 4: "what broke" field-notes style diagram — see docs/gemini-diagram-prompts.md #4 -->
+<figure style="max-width:900px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-infrastructure/pd-ratio-coordinator-what-broke.jpeg" alt="Six things that broke: no GPU access, fixed with RuntimeClass; TOML table conflict, k3s already had it built in; containerd-shim zombie, same pattern 3rd time; in-cluster DNS unreachable from host; go run spawns a zombie binary too; two vLLM metric names drifted" style="width:100%;">
+  <figcaption style="font-size:0.9rem;color:#888;">Six real things, kept in.</figcaption>
+</figure>
 
 ---
 
@@ -246,7 +258,10 @@ was killed, not that the drain protected it. Real validation of this
 guarantee needs llm-d's EPP in front of the pods — explicitly outside
 this round's scope, not a result I'm claiming.
 
-<!-- IMAGE SLOT 5: results summary diagram — see docs/gemini-diagram-prompts.md #5 -->
+<figure style="max-width:900px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-infrastructure/pd-ratio-coordinator-results.jpeg" alt="Results: Test 1 TPOT breach to scale decode, passed, 1,970 requests 0 failures. Test 2 velocity spike to scale prefill, inconclusive, 12,517 requests 0 failures, queue never left 0. Test 3 GPU budget enforcement, passed, 1,376 requests 0 failures. Test 4 drain before scale-down, nuanced, 696 requests 0 failures, routing exclusion unverified" style="width:100%;">
+  <figcaption style="font-size:0.9rem;color:#888;">Four real answers, not four passes.</figcaption>
+</figure>
 
 ### Summary
 
@@ -295,7 +310,10 @@ repo itself. If you find a way to get real queue backlog out of a small
 model, or want to wire up a real EPP for the drain test, I'd genuinely
 like to know.
 
-<!-- IMAGE SLOT 6: closing / what's next diagram — see docs/gemini-diagram-prompts.md #6 -->
+<figure style="max-width:900px;margin:2rem auto;text-align:center;">
+  <img src="/assets/images/llm-infrastructure/pd-ratio-coordinator-whats-next.jpeg" alt="What's next: a bigger model or starved max-num-seqs to get real queue backlog, and a real llm-d EPP in front to validate drain's routing exclusion. Scripts at github.com/kraghavan/gpu-labs" style="width:100%;">
+  <figcaption style="font-size:0.9rem;color:#888;">16,559 requests, zero failures, two open questions.</figcaption>
+</figure>
 
 ---
 
