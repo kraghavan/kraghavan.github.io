@@ -4,3 +4,6 @@ Gemfile
 */.DS_Store
 */*/.DS_Store
 _site/
+.bundle/
+vendor/
+Gemfile.lock
